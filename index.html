@@ -2052,7 +2052,18 @@ function recolorAll() {
   for (const meta of REGIONS) recolorRegion(meta.key);
 }
 function partisanColor(s) {
-  const steps = ['#1e40af', '#2563eb', '#60a5fa', '#fde047', '#f87171', '#dc2626', '#991b1b'];
+  // s = Muhalefet share. Higher s → redder (Muhalefet); lower s → yellower (Iktidar);
+  // s ≈ 0.5 → green (tossup). Symmetric around 0.5.
+  // Index 0 = high s = strong Muhalefet; index 6 = low s = strong Iktidar.
+  const steps = [
+    '#7f1d1d',  // strong Muhalefet (s ≥ 0.70)
+    '#dc2626',  // lean Muhalefet
+    '#fca5a5',  // tilt Muhalefet
+    '#22c55e',  // tossup (s ≈ 0.50)
+    '#fde68a',  // tilt Iktidar
+    '#facc15',  // lean Iktidar
+    '#a16207',  // strong Iktidar (s ≤ 0.30)
+  ];
   const x = Math.max(0, Math.min(1, (s - 0.30) / 0.40));
   const idx = Math.round((1 - x) * 6);
   return steps[idx];
@@ -2062,9 +2073,9 @@ function drawLegend() {
   const lg = $('legend');
   if (state.colorMode === 'partisan') {
     lg.innerHTML = `
-      <span class="legend-chip"><span class="sw" style="background:#991b1b"></span>Iktidar</span>
-      <span class="legend-chip"><span class="sw" style="background:#fde047"></span>Tossup</span>
-      <span class="legend-chip"><span class="sw" style="background:#1e40af"></span>Muhalefet</span>
+      <span class="legend-chip"><span class="sw" style="background:#a16207"></span>Iktidar</span>
+      <span class="legend-chip"><span class="sw" style="background:#22c55e"></span>Tossup</span>
+      <span class="legend-chip"><span class="sw" style="background:#7f1d1d"></span>Muhalefet</span>
     `;
   } else {
     if (state.active === 'national') {
@@ -2245,13 +2256,19 @@ function exportGeoJSON() {
 }
 
 // High-resolution PNG export: clone the live SVG, add a background rect, set
-// explicit width/height, serialize, render at 4× pixel ratio to a canvas.
+// explicit width/height, serialize, render at 16× pixel ratio to a canvas.
 // Captures whatever is currently on the map (all regions, active coloring).
+// Browsers cap canvas dimensions around 16384px — if 16× would overflow, we
+// clamp to the highest scale that fits and tell the user.
 function exportMapPNG() {
-  const SCALE = 4;
+  const TARGET_SCALE = 16;
+  const MAX_CANVAS_DIM = 16384;
   const live = $('map');
   const w = live.clientWidth, h = live.clientHeight;
   if (!w || !h) return;
+  const maxDim = Math.max(w, h);
+  const SCALE = Math.min(TARGET_SCALE, Math.floor(MAX_CANVAS_DIM / maxDim));
+  if (SCALE < 1) { status('Map too large for canvas export', '', true); return; }
 
   // Deep-clone the SVG so we can add a background and standalone-namespace
   // attributes without touching the live document.
