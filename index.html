@@ -2051,22 +2051,39 @@ function recolorPaths(key, diff) {
 function recolorAll() {
   for (const meta of REGIONS) recolorRegion(meta.key);
 }
+// Continuous partisan color scale, LAB-interpolated through 7 anchor colors.
+// LAB interpolation between green and red passes through desaturated grays
+// instead of yellow (which is already used for lean Iktidar), so close races
+// shade naturally around the green tossup midpoint. Scale built once, lazily.
+let _iktidarScale = null, _muhalefetScale = null;
+const TOSSUP_COLOR = '#9ca3af';
 function partisanColor(s) {
-  // s = Muhalefet share. Higher s → redder (Muhalefet); lower s → yellower (Iktidar);
-  // s ≈ 0.5 → green (tossup). Symmetric around 0.5.
-  // Index 0 = high s = strong Muhalefet; index 6 = low s = strong Iktidar.
-  const steps = [
-    '#7f1d1d',  // strong Muhalefet (s ≥ 0.70)
-    '#dc2626',  // lean Muhalefet
-    '#fca5a5',  // tilt Muhalefet
-    '#22c55e',  // tossup (s ≈ 0.50)
-    '#fde68a',  // tilt Iktidar
-    '#facc15',  // lean Iktidar
-    '#a16207',  // strong Iktidar (s ≤ 0.30)
-  ];
-  const x = Math.max(0, Math.min(1, (s - 0.30) / 0.40));
-  const idx = Math.round((1 - x) * 6);
-  return steps[idx];
+  // Three-zone palette:
+  //   s ∈ [0.47, 0.53]  → solid green (tossup band, no gradient)
+  //   s < 0.47          → amber↔yellow gradient inside Iktidar family only
+  //   s > 0.53          → red↔deep-red gradient inside Muhalefet family only
+  // Sharp boundary at 47/53 — the gradient never crosses through green.
+  if (s >= 0.47 && s <= 0.53) return TOSSUP_COLOR;
+  if (!_iktidarScale) {
+    _iktidarScale = d3.scaleLinear()
+      .domain([0, 1])                       // 0 = strongest, 1 = weakest
+      .range(['#a16207', '#facc15'])        // deep amber → light yellow
+      .interpolate(d3.interpolateLab)
+      .clamp(true);
+    _muhalefetScale = d3.scaleLinear()
+      .domain([0, 1])                       // 0 = weakest, 1 = strongest
+      .range(['#dc2626', '#7f1d1d'])        // red → deep red
+      .interpolate(d3.interpolateLab)
+      .clamp(true);
+  }
+  if (s < 0.47) {
+    // Map s ∈ [0.20, 0.47] → t ∈ [0, 1]. Saturate at deep amber for s ≤ 0.20.
+    const t = (s - 0.20) / (0.47 - 0.20);
+    return _iktidarScale(t);
+  }
+  // Map s ∈ [0.53, 0.80] → t ∈ [0, 1]. Saturate at deep red for s ≥ 0.80.
+  const t = (s - 0.53) / (0.80 - 0.53);
+  return _muhalefetScale(t);
 }
 
 function drawLegend() {
@@ -2074,7 +2091,7 @@ function drawLegend() {
   if (state.colorMode === 'partisan') {
     lg.innerHTML = `
       <span class="legend-chip"><span class="sw" style="background:#a16207"></span>Iktidar</span>
-      <span class="legend-chip"><span class="sw" style="background:#22c55e"></span>Tossup</span>
+      <span class="legend-chip"><span class="sw" style="background:#9ca3af"></span>Tossup</span>
       <span class="legend-chip"><span class="sw" style="background:#7f1d1d"></span>Muhalefet</span>
     `;
   } else {
@@ -2261,7 +2278,7 @@ function exportGeoJSON() {
 // Browsers cap canvas dimensions around 16384px — if 16× would overflow, we
 // clamp to the highest scale that fits and tell the user.
 function exportMapPNG() {
-  const TARGET_SCALE = 16;
+  const TARGET_SCALE = 6;
   const MAX_CANVAS_DIM = 16384;
   const live = $('map');
   const w = live.clientWidth, h = live.clientHeight;
