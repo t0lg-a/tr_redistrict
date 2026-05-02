@@ -1,0 +1,1926 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>TR/26 — ReCom</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+<script src="https://cdn.jsdelivr.net/npm/topojson-client@3"></script>
+<style>
+  :root {
+    --pg-bg: #f3f4f6; --card-bg: #fff;
+    --ink: #111827; --dim: #374151; --muted: #6b7280; --faint: #9ca3af; --rule: #e5e7eb;
+    --iktidar: #dc2626; --iktidar-dk: #991b1b;
+    --muhalefet: #2563eb; --muhalefet-dk: #1e40af;
+    --tossup: #fde047; --brand: #4f46e5;
+  }
+  html.dark {
+    --pg-bg: #0a0a0a; --card-bg: #141414;
+    --ink: #fff; --dim: #d0d0d0; --muted: #a0a0a0; --faint: #8a8a8a; --rule: #333;
+    --iktidar: #f87171; --iktidar-dk: #fca5a5;
+    --muhalefet: #60a5fa; --muhalefet-dk: #93c5fd;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; background: var(--pg-bg);
+    background-image:
+      radial-gradient(circle at 10% 10%, var(--pg-bg-grad-1, #eef2ff) 0%, transparent 40%),
+      radial-gradient(circle at 90% 20%, var(--pg-bg-grad-2, #fff1f2) 0%, transparent 40%);
+    background-attachment: fixed;
+    color: var(--ink);
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    -webkit-font-smoothing: antialiased; font-weight: 500; min-height: 100vh;
+  }
+  html.dark body { --pg-bg-grad-1: rgba(79,70,229,0.1); --pg-bg-grad-2: rgba(220,38,38,0.08); }
+  .wrap { max-width: 1380px; margin: 0 auto; padding: 16px 16px 28px; }
+
+  .title-row { display: flex; align-items: stretch; gap: 14px; margin-bottom: 14px; flex-wrap: wrap; }
+  .title-left, .title-right {
+    background: var(--card-bg); border: 1px solid var(--ink);
+    box-shadow: 4px 4px 0 0 var(--ink); padding: 10px 14px;
+  }
+  .title-left { flex: 1; min-width: 280px; display: flex; align-items: center; gap: 14px; }
+  .title-right { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .display-mark { font-weight: 900; font-size: 30px; letter-spacing: -0.04em; color: var(--ink); line-height: 1; }
+  .display-mark .sep-i { color: var(--iktidar-dk); }
+  .display-mark .sep-m { color: var(--muhalefet-dk); }
+  .vrule { width: 1px; align-self: stretch; background: var(--ink); opacity: 0.4; }
+  .micro { font: 800 10px/1 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: 0.08em; color: var(--muted); text-transform: uppercase; }
+  .display-sub { font-weight: 700; font-size: 12px; color: var(--dim); letter-spacing: -0.01em; }
+
+  .toggle-btn {
+    background: var(--card-bg); border: 1px solid var(--ink); color: var(--ink);
+    font: 800 11px/1 'Inter'; padding: 6px 10px; cursor: pointer;
+    letter-spacing: 0.04em; text-transform: uppercase;
+  }
+  .toggle-btn.active { background: var(--ink); color: var(--card-bg); }
+
+  .grid { display: grid; grid-template-columns: 280px 1fr; gap: 14px; }
+
+  .panel {
+    background: var(--card-bg); border: 1px solid var(--ink);
+    box-shadow: 4px 4px 0 0 var(--ink); padding: 12px 14px; margin-bottom: 14px;
+  }
+  .panel h3 { font-weight: 700; font-size: 13px; letter-spacing: -0.01em; margin: 0 0 10px; color: var(--ink); }
+  .panel .label {
+    font: 800 10px/1.2 ui-monospace, monospace;
+    letter-spacing: 0.08em; color: var(--muted); text-transform: uppercase;
+    margin-bottom: 4px;
+  }
+
+  .region-list { display: flex; flex-direction: column; gap: 6px; }
+  .region-card {
+    background: var(--card-bg); border: 1px solid var(--ink); padding: 8px 10px; cursor: pointer;
+    display: grid; grid-template-columns: 1fr auto; gap: 4px 8px; align-items: center;
+    transition: 0.1s;
+  }
+  .region-card.active {
+    box-shadow: 3px 3px 0 0 var(--ink); transform: translate(-1px, -1px);
+    border-width: 2px; padding: 7px 9px;
+  }
+  .region-card:hover:not(.active) { background: var(--rule); }
+  .region-card .nm { font: 700 12px 'Inter'; color: var(--ink); letter-spacing: -0.01em; }
+  .region-card .seats { font: 800 12px ui-monospace, monospace; color: var(--ink); font-variant-numeric: tabular-nums; }
+  .region-card .meta {
+    font: 600 10px ui-monospace, monospace; color: var(--muted);
+    grid-column: 1 / -1; font-variant-numeric: tabular-nums;
+  }
+  .region-card .meta .dot {
+    display: inline-block; width: 6px; height: 6px; vertical-align: middle;
+    margin-right: 4px; border: 1px solid var(--ink);
+  }
+  .region-card .meta .dot.idle      { background: var(--card-bg); }
+  .region-card .meta .dot.loading   { background: var(--faint); }
+  .region-card .meta .dot.running   { background: var(--brand); }
+  .region-card .meta .dot.done      { background: #4ade80; }
+  .region-card .meta .dot.error     { background: var(--iktidar); }
+
+  .nin {
+    background: var(--card-bg); border: 1px solid var(--ink);
+    box-shadow: 2px 2px 0 0 var(--ink); color: var(--ink);
+    padding: 5px 8px; font: 700 14px ui-monospace, monospace;
+    width: 100%; outline: none; -moz-appearance: textfield;
+    font-variant-numeric: tabular-nums;
+  }
+  .nin::-webkit-outer-spin-button, .nin::-webkit-inner-spin-button { display: none; }
+
+  .slider-track {
+    width: 100%; height: 4px; background: var(--rule); border: 1px solid var(--ink);
+    position: relative; cursor: pointer; margin: 12px 0 8px;
+  }
+  .slider-fill {
+    position: absolute; left: 0; top: -1px; bottom: -1px;
+    background: var(--brand);
+    border-top: 1px solid var(--ink); border-bottom: 1px solid var(--ink);
+    pointer-events: none;
+  }
+  .slider-thumb {
+    position: absolute; top: 50%; width: 12px; height: 12px;
+    background: var(--brand); border: 1px solid var(--ink);
+    box-shadow: 2px 2px 0 0 var(--ink); transform: translate(-50%, -50%); pointer-events: none;
+  }
+
+  .check-row {
+    display: flex; align-items: center; gap: 8px; margin-bottom: 6px;
+    cursor: pointer; user-select: none;
+  }
+  .check-row .box { width: 12px; height: 12px; border: 1px solid var(--ink); background: var(--card-bg); flex-shrink: 0; }
+  .check-row.on .box { background: var(--ink); }
+  .check-row .lbl { font: 700 12px 'Inter'; color: var(--ink); }
+
+  button.cmd {
+    background: var(--card-bg); border: 1px solid var(--ink); color: var(--ink);
+    box-shadow: 4px 4px 0 0 var(--ink);
+    font: 800 12px 'Inter'; letter-spacing: 0.04em; text-transform: uppercase;
+    padding: 8px 0; cursor: pointer; transition: 0.1s; width: 100%;
+  }
+  button.cmd:hover:not(:disabled) { transform: translate(-1px,-1px); box-shadow: 5px 5px 0 0 var(--ink); }
+  button.cmd:active:not(:disabled) { transform: translate(2px,2px); box-shadow: 2px 2px 0 0 var(--ink); }
+  button.cmd.go { background: var(--ink); color: var(--card-bg); }
+  button.cmd:disabled { opacity: 0.3; cursor: not-allowed; }
+
+  .map-wrap {
+    position: relative; aspect-ratio: 16 / 9;
+    background: var(--card-bg); border: 1px solid var(--ink); overflow: hidden;
+  }
+  #map { width: 100%; height: 100%; display: block; }
+  #map path { vector-effect: non-scaling-stroke; }
+
+  .map-overlay {
+    position: absolute; bottom: 8px; left: 8px;
+    background: var(--card-bg); border: 1px solid var(--ink);
+    padding: 6px 8px; font: 700 11px ui-monospace, monospace;
+    display: flex; gap: 12px; align-items: center;
+  }
+  .map-overlay-tr {
+    position: absolute; top: 8px; right: 8px;
+    background: var(--card-bg); border: 1px solid var(--ink);
+    padding: 6px 8px; font: 700 11px ui-monospace, monospace; color: var(--dim);
+  }
+  .legend-chip { display: inline-flex; align-items: center; gap: 5px; }
+  .legend-chip .sw { width: 10px; height: 10px; border: 1px solid var(--ink); }
+
+  .progress-overlay {
+    position: absolute; inset: 0; background: rgba(0,0,0,0.05);
+    display: flex; align-items: center; justify-content: center; pointer-events: none;
+  }
+  html.dark .progress-overlay { background: rgba(255,255,255,0.05); }
+  .progress-card {
+    background: var(--card-bg); border: 1px solid var(--ink);
+    box-shadow: 4px 4px 0 0 var(--ink); padding: 14px 18px; min-width: 280px;
+  }
+  .progress-card .ttl { font: 800 11px ui-monospace, monospace; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink); margin-bottom: 8px; }
+  .progress-bar { height: 6px; background: var(--rule); border: 1px solid var(--ink); position: relative; }
+  .progress-bar > div { position: absolute; inset: 0; background: var(--brand); width: 0%; transition: width 0.2s; }
+  .progress-pct { font: 700 11px ui-monospace, monospace; color: var(--dim); margin-top: 6px; }
+
+  .metrics { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin-top: 14px; }
+  .metric {
+    background: var(--card-bg); border: 1px solid var(--ink);
+    box-shadow: 4px 4px 0 0 var(--ink); padding: 8px 10px;
+  }
+  .metric .v {
+    font: 900 22px ui-monospace, monospace; letter-spacing: -0.03em;
+    font-variant-numeric: tabular-nums; color: var(--ink);
+  }
+  .metric .k {
+    font: 800 9px/1 ui-monospace, monospace; letter-spacing: 0.08em;
+    text-transform: uppercase; color: var(--muted); margin-top: 4px;
+  }
+
+  .seats-bar { display: flex; height: 18px; border: 1px solid var(--ink); margin-top: 4px; overflow: hidden; }
+  .seats-bar .seg { height: 100%; }
+
+  .score-chart {
+    background: var(--card-bg); border: 1px solid var(--ink);
+    box-shadow: 4px 4px 0 0 var(--ink); padding: 10px 12px; margin-top: 14px;
+  }
+  .score-chart canvas { display: block; width: 100%; height: 120px; }
+
+  .status {
+    margin-top: 10px; font: 700 11px ui-monospace, monospace; color: var(--dim);
+    display: flex; justify-content: space-between; border-top: 1px solid var(--rule);
+    padding-top: 8px; gap: 12px;
+  }
+  .status .lhs { color: var(--ink); }
+  .status .err { color: var(--iktidar-dk); font-weight: 800; }
+
+  @media (max-width: 900px) {
+    .grid { grid-template-columns: 1fr; }
+    .map-wrap { aspect-ratio: 4 / 3; }
+    .metrics { grid-template-columns: 1fr 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="title-row">
+    <div class="title-left">
+      <div class="display-mark">TR<span class="sep-i">/</span><span class="sep-m">/</span>26</div>
+      <div class="vrule"></div>
+      <div>
+        <div class="micro">ReCom Redistricting</div>
+        <div class="display-sub">2023 milletvekili — mahalle level — 7 regions</div>
+      </div>
+    </div>
+    <div class="title-right">
+      <div>
+        <div class="micro">National electorate</div>
+        <div id="hdr-electorate" style="font:800 14px ui-monospace,monospace;color:var(--ink)">—</div>
+      </div>
+      <div class="vrule"></div>
+      <div>
+        <div class="micro">Total seats</div>
+        <div id="hdr-seats" style="font:800 14px ui-monospace,monospace;color:var(--ink)">—</div>
+      </div>
+      <div class="vrule"></div>
+      <button class="toggle-btn active" id="theme-light">☀</button>
+      <button class="toggle-btn" id="theme-dark">☾</button>
+    </div>
+  </div>
+
+  <div class="grid">
+
+    <div>
+      <div class="panel">
+        <h3>Voters per district</h3>
+        <input class="nin" type="number" id="in-vpd" value="100000" min="10000" max="2000000" step="1000">
+        <div style="font:600 11px ui-monospace,monospace;color:var(--muted);margin-top:6px;line-height:1.4">
+          Apportionment target. Each region's<br>district count = round(electorate / target).
+        </div>
+      </div>
+
+      <div class="panel">
+        <h3>Regions</h3>
+        <div class="region-list" id="region-list"></div>
+      </div>
+
+      <div class="panel">
+        <h3>Run parameters</h3>
+        <div>
+          <div class="label">Iterations</div>
+          <input class="nin" type="number" id="in-iters" value="2000" min="100" max="100000" step="100">
+        </div>
+        <div style="margin-top:10px">
+          <div class="label">Population tolerance</div>
+          <div class="slider-track" id="tol-track">
+            <div class="slider-fill" id="tol-fill"></div>
+            <div class="slider-thumb" id="tol-thumb"></div>
+          </div>
+          <div style="font:700 12px ui-monospace,monospace;color:var(--ink)" id="tol-label">±10.0%</div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h3>Score</h3>
+        <div class="check-row on" data-key="cutEdges"><div class="box"></div><div class="lbl">Cut edges</div></div>
+        <div class="check-row on" data-key="popDev"><div class="box"></div><div class="lbl">Population balance</div></div>
+        <div class="check-row" data-key="meanMedian"><div class="box"></div><div class="lbl">Mean–median</div></div>
+        <div class="check-row" data-key="effGap"><div class="box"></div><div class="lbl">Efficiency gap</div></div>
+        <div class="check-row" data-key="ilSplits"><div class="box"></div><div class="lbl">İl splits penalty</div></div>
+      </div>
+
+      <div class="panel">
+        <h3>Color</h3>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+          <button class="toggle-btn active" id="color-districts">Districts</button>
+          <button class="toggle-btn" id="color-partisan">Partisan</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h3>Run</h3>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+          <button class="cmd go" id="btn-start" disabled>Run sel.</button>
+          <button class="cmd" id="btn-pause" disabled>Pause</button>
+        </div>
+        <button class="cmd go" id="btn-runall" disabled style="margin-bottom:8px">Run all 7</button>
+        <button class="cmd" id="btn-reset" disabled style="margin-bottom:8px">Reset region</button>
+        <button class="cmd" id="btn-export" disabled>Export GeoJSON</button>
+      </div>
+    </div>
+
+    <div>
+      <div class="map-wrap">
+        <svg id="map" preserveAspectRatio="xMidYMid meet"></svg>
+        <div class="map-overlay" id="legend">
+          <span style="font-weight:800;letter-spacing:0.04em">Loading regions…</span>
+        </div>
+        <div class="map-overlay-tr" id="map-tip">click region · then Run</div>
+        <div class="progress-overlay" id="progress" style="display:flex">
+          <div class="progress-card">
+            <div class="ttl" id="progress-ttl">Loading regional data</div>
+            <div class="progress-bar"><div id="progress-fill"></div></div>
+            <div class="progress-pct" id="progress-pct">0 / 7</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="metrics">
+        <div class="metric"><div class="v" id="m-popdev">—</div><div class="k">Pop. dev (max)</div></div>
+        <div class="metric"><div class="v" id="m-cutedges">—</div><div class="k">Cut edges</div></div>
+        <div class="metric"><div class="v" id="m-effgap">—</div><div class="k">Efficiency gap</div></div>
+        <div class="metric"><div class="v" id="m-meanmed">—</div><div class="k">Mean–median</div></div>
+        <div class="metric">
+          <div class="v" id="m-seats">—</div>
+          <div class="k">Seats: M / İ</div>
+          <div class="seats-bar" id="seats-bar" style="display:none"><div class="seg" id="seg-m"></div><div class="seg" id="seg-i"></div></div>
+        </div>
+      </div>
+
+      <div class="score-chart">
+        <div class="label" style="margin-bottom:6px">Score history (lower = better)</div>
+        <canvas id="score-canvas"></canvas>
+      </div>
+
+      <div class="status">
+        <span class="lhs" id="status-l">Idle.</span>
+        <span id="status-r">—</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════
+     ReCom Web Worker — recursive bipartition + ReCom optimizer
+     ═════════════════════════════════════════════════════════════ -->
+<script id="worker-src" type="javascript/worker">
+'use strict';
+
+const regions = {};   // key -> {adj, pop, ikt, muh, il, N, totalPop, totalDist}
+let aborted = false;
+let paused  = false;
+
+function mkRng(seed) {
+  let a = seed >>> 0;
+  return function() {
+    a |= 0; a = a + 0x6D2B79F5 | 0;
+    let t = Math.imul(a ^ a >>> 15, 1 | a);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+
+// Pre-allocated, reused buffers for the inner ReCom loop. Each worker holds
+// one region's worth, sized to that region's N. Avoids ~150KB/step of typed
+// array allocation that was driving GC pressure.
+let wbuf = null;
+function ensureWBuf(N) {
+  if (wbuf && wbuf.N >= N) return wbuf;
+  wbuf = {
+    N,
+    inTree:    new Uint8Array(N),
+    parent:    new Int32Array(N),
+    childHead: new Int32Array(N),
+    childNext: new Int32Array(N),
+    order:     new Int32Array(N),
+    stack:     new Int32Array(N),
+    it:        new Int32Array(N),
+    sub:       new Float64Array(N),
+    inSet:     new Uint8Array(N),
+    inStrict:  new Uint8Array(N),
+    isChanged: new Uint8Array(N),
+    strictNodes: new Int32Array(N),
+    changedNodes: new Int32Array(N),
+    arr:       new Int32Array(N),
+    bfsQ:      new Int32Array(N),
+    okN:       new Int32Array(N),
+    okE:       new Float64Array(N),
+  };
+  return wbuf;
+}
+
+// Random spanning tree on a node SUBSET via random Prim (frontier pop).
+// Uses wbuf.inTree / wbuf.parent — no per-call allocation. Cleans inTree
+// for nodeArr before returning so the next call sees a zero buffer.
+function randomSpanningTree(adj, nodeArr, inSet, N, rng) {
+  if (nodeArr.length === 0) return null;
+  const buf = ensureWBuf(N);
+  const inTree = buf.inTree;
+  const parent = buf.parent;
+  const start = nodeArr[(rng() * nodeArr.length) | 0];
+  inTree[start] = 1;
+  parent[start] = -1;
+  const fr = [];  // flat: pairs of [u, v] inlined as fr[2k], fr[2k+1]
+  const adjStart = adj[start];
+  for (let i = 0; i < adjStart.length; i++) {
+    const v = adjStart[i];
+    if (inSet[v]) { fr.push(start, v); }
+  }
+  let added = 1;
+  const target = nodeArr.length;
+  while (added < target && fr.length) {
+    const idx = ((rng() * (fr.length >> 1)) | 0) << 1;
+    const u = fr[idx], v = fr[idx + 1];
+    fr[idx]     = fr[fr.length - 2];
+    fr[idx + 1] = fr[fr.length - 1];
+    fr.pop(); fr.pop();
+    if (inTree[v]) continue;
+    inTree[v] = 1;
+    parent[v] = u;
+    added++;
+    const adjV = adj[v];
+    for (let i = 0; i < adjV.length; i++) {
+      const w = adjV[i];
+      if (inSet[w] && !inTree[w]) fr.push(v, w);
+    }
+  }
+  if (added < target) {
+    // Disconnected within subset; clean inTree for nodeArr before bailing
+    for (let i = 0; i < nodeArr.length; i++) inTree[nodeArr[i]] = 0;
+    return null;
+  }
+  // Clean inTree for nodeArr — caller doesn't need it past return, and the
+  // buffer will be reused on the next call. Parent stays valid for tree.nodes.
+  for (let i = 0; i < nodeArr.length; i++) inTree[nodeArr[i]] = 0;
+  return { parent, root: start, nodes: nodeArr };
+}
+
+function subtreePops(tree, pop, N) {
+  const { parent, root, nodes } = tree;
+  const buf = ensureWBuf(N);
+  const childHead = buf.childHead;
+  const childNext = buf.childNext;
+  // Init only the slots we'll touch (way faster than full N fill on big regions)
+  for (let i = 0; i < nodes.length; i++) {
+    childHead[nodes[i]] = -1;
+    childNext[nodes[i]] = -1;
+  }
+  for (const n of nodes) {
+    const p = parent[n];
+    if (p === -1) continue;
+    childNext[n] = childHead[p];
+    childHead[p] = n;
+  }
+  // Iterative post-order using length-bounded stacks
+  const order = buf.order;
+  let oi = 0;
+  const stack = buf.stack;
+  const it = buf.it;
+  let sp = 0;
+  stack[sp++] = root;
+  it[root] = childHead[root];
+  while (sp > 0) {
+    const u = stack[sp - 1];
+    if (it[u] === -1) { order[oi++] = u; sp--; }
+    else {
+      const c = it[u];
+      it[u] = childNext[c];
+      stack[sp++] = c;
+      it[c] = childHead[c];
+    }
+  }
+  const sub = buf.sub;
+  for (let i = 0; i < oi; i++) {
+    const n = order[i];
+    let s = pop[n];
+    for (let c = childHead[n]; c !== -1; c = childNext[c]) s += sub[c];
+    sub[n] = s;
+  }
+  return { sub, childHead, childNext };
+}
+
+// Find best tree edge for a target population. On success, populates
+// wbuf.inStrict bitmap and wbuf.strictNodes with descendant set (count
+// returned in nStrict). Caller must reset inStrict[strictNodes[..nStrict]]
+// when done. Returns null fields when no candidate within tolPop.
+function tryBipartCut(tree, pop, target, tolPop, N, rng) {
+  const { sub, childHead, childNext } = subtreePops(tree, pop, N);
+  const { parent, nodes } = tree;
+  const buf = wbuf;
+  const okN = buf.okN;
+  const okE = buf.okE;
+  let nOk = 0;
+  let bestAny = -1, bestAnyErr = Infinity;
+  for (let i = 0; i < nodes.length; i++) {
+    const n = nodes[i];
+    if (parent[n] === -1) continue;
+    const err = Math.abs(sub[n] - target);
+    if (err < bestAnyErr) { bestAnyErr = err; bestAny = n; }
+    if (err <= tolPop) { okN[nOk] = n; okE[nOk] = err; nOk++; }
+  }
+  let nStrict = 0;
+  if (nOk > 0) {
+    // Find top-5 minimums via partial selection (O(n), no full sort or alloc)
+    const top = 5 < nOk ? 5 : nOk;
+    // Simple insertion-sort-of-top: scan all, keep best `top` in okN[0..top]
+    for (let i = 1; i < nOk; i++) {
+      let j = i;
+      while (j > 0 && okE[j - 1] > okE[j]) {
+        const tn = okN[j - 1]; okN[j - 1] = okN[j]; okN[j] = tn;
+        const te = okE[j - 1]; okE[j - 1] = okE[j]; okE[j] = te;
+        j--;
+      }
+      // Once we have top sorted in [0..top), no need to keep sorting beyond
+      if (i >= top && okE[top - 1] < okE[i]) break;
+    }
+    const chosen = okN[(rng() * top) | 0];
+    // BFS down from chosen, mark inStrict and record strictNodes
+    const inStrict = buf.inStrict;
+    const strictNodes = buf.strictNodes;
+    const bfs = buf.bfsQ;
+    let qHead = 0, qTail = 0;
+    inStrict[chosen] = 1;
+    strictNodes[nStrict++] = chosen;
+    bfs[qTail++] = chosen;
+    while (qHead < qTail) {
+      const u = bfs[qHead++];
+      for (let c = childHead[u]; c !== -1; c = childNext[c]) {
+        inStrict[c] = 1;
+        strictNodes[nStrict++] = c;
+        bfs[qTail++] = c;
+      }
+    }
+  }
+  return { nStrict, fallbackNode: bestAny, fallbackErr: bestAnyErr, childHead, childNext };
+}
+
+// Materialize descendant set of `node` given childHead/childNext into
+// wbuf.strictNodes / wbuf.inStrict. Returns the node count.
+function descendantNodes(node, childHead, childNext) {
+  const buf = wbuf;
+  const inStrict = buf.inStrict;
+  const strictNodes = buf.strictNodes;
+  const bfs = buf.bfsQ;
+  let n = 0, qH = 0, qT = 0;
+  inStrict[node] = 1;
+  strictNodes[n++] = node;
+  bfs[qT++] = node;
+  while (qH < qT) {
+    const u = bfs[qH++];
+    for (let c = childHead[u]; c !== -1; c = childNext[c]) {
+      inStrict[c] = 1;
+      strictNodes[n++] = c;
+      bfs[qT++] = c;
+    }
+  }
+  return n;
+}
+
+// Recursive bipartition. Splits nodeArr into k districts numbered baseId..baseId+k-1.
+function bipart(R, nodeArr, k, baseId, assignment, tol, rng, statusCb, totalK, doneRef) {
+  if (k === 1) {
+    for (const n of nodeArr) assignment[n] = baseId;
+    doneRef.count++;
+    if (statusCb && (doneRef.count % 8 === 0 || doneRef.count === totalK)) statusCb(doneRef.count, totalK);
+    return true;
+  }
+  const kLeft = Math.floor(k / 2);
+  const kRight = k - kLeft;
+  let totalPopHere = 0;
+  for (const n of nodeArr) totalPopHere += R.pop[n];
+  const target = totalPopHere * (kLeft / k);
+
+  // Loose tolerance — ReCom rebalances afterward via popDev in score.
+  // Scaled by sqrt(k_subtree) — random-walk variance of cumulative pop.
+  const idealPop = R.totalPop / R.totalDist;
+  const tolPop = idealPop * tol * Math.sqrt(Math.min(kLeft, kRight)) * 1.0;
+
+  const inSet = new Uint8Array(R.N);
+  for (const n of nodeArr) inSet[n] = 1;
+
+  // Find a balanced cut. tryBipartCut writes to wbuf.inStrict / wbuf.strictNodes
+  // when nStrict > 0. If no attempt finds a strict cut, materialize the closest
+  // out-of-tolerance fallback via descendantNodes.
+  let nStrict = 0;
+  let bestFallback = { node: -1, err: Infinity, childHead: null, childNext: null };
+
+  for (let attempt = 0; attempt < 40; attempt++) {
+    if (aborted) return false;
+    const tree = randomSpanningTree(R.adj, nodeArr, inSet, R.N, rng);
+    if (!tree) continue;
+    const r = tryBipartCut(tree, R.pop, target, tolPop, R.N, rng);
+    if (r.nStrict > 0) { nStrict = r.nStrict; break; }
+    if (r.fallbackErr < bestFallback.err && r.fallbackNode !== -1) {
+      // Save copies of childHead/childNext — wbuf will overwrite on next call.
+      // Triggered at most ~5-10 times per bipart call (whenever a closer
+      // fallback is found), so allocation cost is small.
+      const savedHead = new Int32Array(R.N);
+      const savedNext = new Int32Array(R.N);
+      savedHead.set(r.childHead);
+      savedNext.set(r.childNext);
+      bestFallback = {
+        node: r.fallbackNode, err: r.fallbackErr,
+        childHead: savedHead, childNext: savedNext,
+      };
+    }
+  }
+  if (nStrict === 0) {
+    if (bestFallback.node !== -1) {
+      nStrict = descendantNodes(bestFallback.node, bestFallback.childHead, bestFallback.childNext);
+    } else {
+      throw new Error(`Bipartition failed at k=${k} (${nodeArr.length} nodes)`);
+    }
+  }
+
+  // Split nodeArr by inStrict bitmap, then clear bitmap for next call.
+  const inStrict = wbuf.inStrict;
+  const strictNodes = wbuf.strictNodes;
+  const left = [], right = [];
+  for (let i = 0; i < nodeArr.length; i++) {
+    const n = nodeArr[i];
+    (inStrict[n] ? left : right).push(n);
+  }
+  // Clean inStrict for the strictNodes we marked
+  for (let i = 0; i < nStrict; i++) inStrict[strictNodes[i]] = 0;
+  // Clear inSet for nodeArr
+  for (let i = 0; i < nodeArr.length; i++) inSet[nodeArr[i]] = 0;
+  if (left.length === 0 || right.length === 0) {
+    throw new Error(`Degenerate bipartition: left=${left.length} right=${right.length}`);
+  }
+
+  return bipart(R, left, kLeft, baseId, assignment, tol, rng, statusCb, totalK, doneRef)
+      && bipart(R, right, kRight, baseId + kLeft, assignment, tol, rng, statusCb, totalK, doneRef);
+}
+
+function initialPartition(R, k, tol, rng, statusCb) {
+  R.totalDist = k;
+  const assignment = new Int32Array(R.N).fill(-1);
+  const allNodes = new Array(R.N);
+  for (let i = 0; i < R.N; i++) allNodes[i] = i;
+  const doneRef = { count: 0 };
+  bipart(R, allNodes, k, 0, assignment, tol, rng, statusCb, k, doneRef);
+  return assignment;
+}
+
+// ── Maintained-state ReCom ─────────────────────────────────────────
+// Build and maintain incremental state so each step is O(merged_size)
+// rather than O(V + E).
+function buildState(R, k, assignment) {
+  const N = R.N;
+  const S = {
+    R, k, N,
+    assignment,                                  // Int32Array(N)
+    pops: new Float64Array(k),
+    ikts: new Float64Array(k),
+    muhs: new Float64Array(k),
+    cutFlat: [],                                 // edge ids, u*N + v with u<v
+    cutSlot: new Map(),                          // edgeId -> idx in cutFlat
+    districtNodes: new Array(k),                 // d -> Array<int>
+    districtSlot: new Int32Array(N),             // node -> slot in districtNodes[assignment[node]]
+    ilDistCount: new Map(),                      // (il*k + d) -> count of nodes
+    nDistrictsForIl: new Map(),                  // il -> distinct districts touching
+    ilSplits: 0,
+    cutEdges: 0,
+    score: 0,
+    bestScore: Infinity,
+    bestAssignment: new Int32Array(N),
+  };
+  for (let d = 0; d < k; d++) S.districtNodes[d] = [];
+  for (let i = 0; i < N; i++) {
+    const d = assignment[i];
+    S.districtSlot[i] = S.districtNodes[d].length;
+    S.districtNodes[d].push(i);
+    S.pops[d] += R.pop[i];
+    S.ikts[d] += R.ikt[i];
+    S.muhs[d] += R.muh[i];
+    const il = R.il[i];
+    const key = il * k + d;
+    const c = S.ilDistCount.get(key) || 0;
+    if (c === 0) S.nDistrictsForIl.set(il, (S.nDistrictsForIl.get(il) || 0) + 1);
+    S.ilDistCount.set(key, c + 1);
+  }
+  let iss = 0;
+  for (const c of S.nDistrictsForIl.values()) iss += (c - 1);
+  S.ilSplits = iss;
+  for (let u = 0; u < N; u++) {
+    const a = assignment[u];
+    const ne = R.adj[u];
+    for (let j = 0; j < ne.length; j++) {
+      const v = ne[j];
+      if (v > u && assignment[v] !== a) {
+        const eid = u * N + v;
+        S.cutSlot.set(eid, S.cutFlat.length);
+        S.cutFlat.push(eid);
+      }
+    }
+  }
+  S.cutEdges = S.cutFlat.length;
+  return S;
+}
+
+// Compute score from maintained state. O(k) for popDev/eff-gap/meanMed; the
+// expensive per-V scans are gone.
+function scoreFromState(S, weights) {
+  let s = 0;
+  if (weights.cutEdges) s += weights.cutEdges * S.cutEdges;
+  if (weights.popDev) {
+    const ideal = S.R.totalPop / S.k;
+    let maxDev = 0;
+    for (let d = 0; d < S.k; d++) {
+      const dev = Math.abs(S.pops[d] - ideal) / ideal;
+      if (dev > maxDev) maxDev = dev;
+    }
+    s += weights.popDev * (maxDev * 100) * (maxDev * 100);
+  }
+  if (weights.meanMedian || weights.effGap) {
+    const k = S.k;
+    let mean = 0, wd = 0, wr = 0, total = 0;
+    const shares = new Float64Array(k);
+    for (let d = 0; d < k; d++) {
+      const t = S.muhs[d] + S.ikts[d];
+      const sh = t > 0 ? S.muhs[d] / t : 0.5;
+      shares[d] = sh; mean += sh;
+      if (weights.effGap) {
+        if (sh > 0.5) { wd += (sh - 0.5) * t; wr += (1 - sh) * t; }
+        else          { wd += sh * t; wr += (0.5 - sh) * t; }
+        total += t;
+      }
+    }
+    mean /= k;
+    if (weights.meanMedian) {
+      const sorted = Array.from(shares).sort((a, b) => a - b);
+      const median = k % 2 ? sorted[(k - 1) >> 1] : 0.5 * (sorted[k / 2 - 1] + sorted[k / 2]);
+      const mm = (mean - median) * 100;
+      s += weights.meanMedian * mm * mm;
+    }
+    if (weights.effGap) {
+      const eg = total > 0 ? (wd - wr) / total : 0;
+      s += weights.effGap * (eg * 100) * (eg * 100);
+    }
+  }
+  if (weights.ilSplits) s += weights.ilSplits * S.ilSplits;
+  return s;
+}
+
+function metricsFromState(S) {
+  const k = S.k;
+  const ideal = S.R.totalPop / k;
+  let maxDev = 0;
+  let mWin = 0, kWin = 0;
+  let wd = 0, wr = 0, total = 0;
+  let mean = 0;
+  const shares = new Float64Array(k);
+  for (let d = 0; d < k; d++) {
+    const dev = Math.abs(S.pops[d] - ideal) / ideal;
+    if (dev > maxDev) maxDev = dev;
+    const t = S.muhs[d] + S.ikts[d];
+    const sh = t > 0 ? S.muhs[d] / t : 0.5;
+    shares[d] = sh; mean += sh;
+    if (sh > 0.5) { mWin++; wd += (sh - 0.5) * t; wr += (1 - sh) * t; }
+    else          { kWin++; wd += sh * t; wr += (0.5 - sh) * t; }
+    total += t;
+  }
+  mean /= k;
+  const sorted = Array.from(shares).sort((a, b) => a - b);
+  const median = k % 2 ? sorted[(k - 1) >> 1] : 0.5 * (sorted[k / 2 - 1] + sorted[k / 2]);
+  return {
+    popDev: maxDev,
+    cutEdges: S.cutEdges,
+    effGap: total > 0 ? (wd - wr) / total : 0,
+    meanMed: mean - median,
+    muhSeats: mWin, iktSeats: kWin,
+    ilSplits: S.ilSplits,
+  };
+}
+
+// One ReCom step on maintained state. Mutates S on accept; leaves S alone on
+// reject. Returns array of changed nodes (for diff), or null.
+function recomStepInc(S, tol, weights, T, rng) {
+  const R = S.R;
+  const N = R.N;
+  if (S.cutFlat.length === 0) return null;
+
+  // ── Pick a cut edge in O(1) from maintained list
+  const enc = S.cutFlat[(rng() * S.cutFlat.length) | 0];
+  const u = (enc / N) | 0;
+  const v = enc - u * N;
+  const d1 = S.assignment[u], d2 = S.assignment[v];
+
+  // ── Collect merged set from districtNodes (O(|d1|+|d2|), not O(N))
+  const list1 = S.districtNodes[d1];
+  const list2 = S.districtNodes[d2];
+  const buf = ensureWBuf(N);
+  const inSet = buf.inSet;
+  const arrBuf = buf.arr;
+  let ai = 0, ppop = 0;
+  for (let i = 0; i < list1.length; i++) { const n = list1[i]; inSet[n] = 1; arrBuf[ai] = n; ai++; ppop += R.pop[n]; }
+  for (let i = 0; i < list2.length; i++) { const n = list2[i]; inSet[n] = 1; arrBuf[ai] = n; ai++; ppop += R.pop[n]; }
+  const arrLen = ai;
+  // Make a small Array slice for randomSpanningTree (it needs .length and indexed access)
+  // Reuse arrBuf directly is fine since we know arrLen — but randomSpanningTree iterates arr[i], so we pass a length-bounded view.
+  // Cheaper: pass a small JS array. arrLen is small (~70 at k=191). Allocation cost is minimal.
+  const arr = new Array(arrLen);
+  for (let i = 0; i < arrLen; i++) arr[i] = arrBuf[i];
+
+  // ── Tree + balanced cut
+  const tree = randomSpanningTree(R.adj, arr, inSet, N, rng);
+  for (let i = 0; i < arrLen; i++) inSet[arr[i]] = 0;
+  if (!tree) return null;
+
+  const idealPop = R.totalPop / R.totalDist;
+  const tolPop = idealPop * tol;
+  const r = tryBipartCut(tree, R.pop, ppop / 2, tolPop, N, rng);
+  if (r.nStrict === 0) return null;
+
+  // ── inStrict bitmap is already populated by tryBipartCut.
+  //    strictNodes[0..r.nStrict] gives the descendants in arr.
+  const inStrict = buf.inStrict;
+  const strictNodes = buf.strictNodes;
+  const isChanged = buf.isChanged;
+  const changedNodes = buf.changedNodes;
+  let nChanged = 0;
+  for (let i = 0; i < arrLen; i++) {
+    const n = arr[i];
+    const newD = inStrict[n] ? d1 : d2;
+    if (newD !== S.assignment[n]) { changedNodes[nChanged] = n; nChanged++; isChanged[n] = 1; }
+  }
+  if (nChanged === 0) {
+    // Cleanup inStrict marks set by tryBipartCut
+    for (let i = 0; i < r.nStrict; i++) inStrict[strictNodes[i]] = 0;
+    return null;
+  }
+
+  // ── Pop / ikt / muh deltas (only d1, d2 affected)
+  let dPop = 0, dIkt = 0, dMuh = 0;
+  for (let ci = 0; ci < nChanged; ci++) {
+    const n = changedNodes[ci];
+    const newD = inStrict[n] ? d1 : d2;
+    const factor = (newD === d1) ? 1 : -1;
+    dPop += factor * R.pop[n];
+    dIkt += factor * R.ikt[n];
+    dMuh += factor * R.muh[n];
+  }
+  const newPop_d1 = S.pops[d1] + dPop, newPop_d2 = S.pops[d2] - dPop;
+  const newIkt_d1 = S.ikts[d1] + dIkt, newIkt_d2 = S.ikts[d2] - dIkt;
+  const newMuh_d1 = S.muhs[d1] + dMuh, newMuh_d2 = S.muhs[d2] - dMuh;
+
+  // ── Cut-edge transitions: walk only neighbours of changed nodes
+  let dCut = 0;
+  const cutGain = [], cutLose = [];
+  for (let ci = 0; ci < nChanged; ci++) {
+    const n = changedNodes[ci];
+    const oldD = S.assignment[n];
+    const newD = inStrict[n] ? d1 : d2;
+    const adjN = R.adj[n];
+    for (let j = 0; j < adjN.length; j++) {
+      const w = adjN[j];
+      let oldW, newW;
+      if (isChanged[w]) {
+        if (w < n) continue;        // count each pair once
+        oldW = S.assignment[w];
+        newW = inStrict[w] ? d1 : d2;
+      } else {
+        oldW = newW = S.assignment[w];
+      }
+      const wasCut = (oldD !== oldW);
+      const isCut_ = (newD !== newW);
+      if (wasCut !== isCut_) {
+        const a = n < w ? n : w, b = n < w ? w : n;
+        const eid = a * N + b;
+        if (isCut_) { dCut++; cutGain.push(eid); }
+        else        { dCut--; cutLose.push(eid); }
+      }
+    }
+  }
+  const newCutEdges = S.cutEdges + dCut;
+
+  // ── ilSplits delta via temp Map of (il*k+d) -> delta
+  let newIlSplits = S.ilSplits;
+  const ilCountChanges = [];   // [key, oldCount, newCount]
+  const ilNDistDelta = new Map();   // il -> delta
+  {
+    // Always maintain — cheap, and metrics panel reads ilSplits regardless of weight
+    const ilDistDelta = new Map();
+    for (let ci = 0; ci < nChanged; ci++) {
+      const n = changedNodes[ci];
+      const il = R.il[n];
+      const oldD = S.assignment[n];
+      const newD = inStrict[n] ? d1 : d2;
+      const kOld = il * S.k + oldD;
+      const kNew = il * S.k + newD;
+      ilDistDelta.set(kOld, (ilDistDelta.get(kOld) || 0) - 1);
+      ilDistDelta.set(kNew, (ilDistDelta.get(kNew) || 0) + 1);
+    }
+    for (const [key, delta] of ilDistDelta) {
+      const oldC = S.ilDistCount.get(key) || 0;
+      const newC = oldC + delta;
+      ilCountChanges.push([key, oldC, newC]);
+      if (oldC === 0 && newC > 0) {
+        const il = (key / S.k) | 0;
+        ilNDistDelta.set(il, (ilNDistDelta.get(il) || 0) + 1);
+      } else if (oldC > 0 && newC === 0) {
+        const il = (key / S.k) | 0;
+        ilNDistDelta.set(il, (ilNDistDelta.get(il) || 0) - 1);
+      }
+    }
+    let dIs = 0;
+    for (const v of ilNDistDelta.values()) dIs += v;
+    newIlSplits = S.ilSplits + dIs;
+  }
+
+  // ── Proposed score
+  let proposed = 0;
+  if (weights.cutEdges) proposed += weights.cutEdges * newCutEdges;
+  if (weights.popDev) {
+    const ideal = R.totalPop / S.k;
+    let maxDev = 0;
+    for (let d = 0; d < S.k; d++) {
+      let p = (d === d1) ? newPop_d1 : (d === d2) ? newPop_d2 : S.pops[d];
+      const dev = Math.abs(p - ideal) / ideal;
+      if (dev > maxDev) maxDev = dev;
+    }
+    proposed += weights.popDev * (maxDev * 100) * (maxDev * 100);
+  }
+  if (weights.meanMedian || weights.effGap) {
+    const k = S.k;
+    let mean = 0, wdv = 0, wrv = 0, total = 0;
+    const shares = new Float64Array(k);
+    for (let d = 0; d < k; d++) {
+      const muh = (d === d1) ? newMuh_d1 : (d === d2) ? newMuh_d2 : S.muhs[d];
+      const ikt = (d === d1) ? newIkt_d1 : (d === d2) ? newIkt_d2 : S.ikts[d];
+      const t = muh + ikt;
+      const sh = t > 0 ? muh / t : 0.5;
+      shares[d] = sh; mean += sh;
+      if (weights.effGap) {
+        if (sh > 0.5) { wdv += (sh - 0.5) * t; wrv += (1 - sh) * t; }
+        else          { wdv += sh * t; wrv += (0.5 - sh) * t; }
+        total += t;
+      }
+    }
+    mean /= k;
+    if (weights.meanMedian) {
+      const sorted = Array.from(shares).sort((a, b) => a - b);
+      const median = k % 2 ? sorted[(k - 1) >> 1] : 0.5 * (sorted[k / 2 - 1] + sorted[k / 2]);
+      const mm = (mean - median) * 100;
+      proposed += weights.meanMedian * mm * mm;
+    }
+    if (weights.effGap) {
+      const eg = total > 0 ? (wdv - wrv) / total : 0;
+      proposed += weights.effGap * (eg * 100) * (eg * 100);
+    }
+  }
+  if (weights.ilSplits) proposed += weights.ilSplits * newIlSplits;
+
+  // ── Accept / reject
+  const dE = proposed - S.score;
+  const accept = dE <= 0 || (T > 0 && rng() < Math.exp(-dE / T));
+
+  if (!accept) {
+    // Roll back marker buffers
+    for (let i = 0; i < r.nStrict; i++) inStrict[strictNodes[i]] = 0;
+    for (let ci = 0; ci < nChanged; ci++) isChanged[changedNodes[ci]] = 0;
+    return null;
+  }
+
+  // ── Commit: assignment + districtNodes (swap-pop)
+  for (let ci = 0; ci < nChanged; ci++) {
+    const n = changedNodes[ci];
+    const oldD = S.assignment[n];
+    const newD = inStrict[n] ? d1 : d2;
+    const oldList = S.districtNodes[oldD];
+    const slot = S.districtSlot[n];
+    const last = oldList.length - 1;
+    if (slot !== last) {
+      const lastNode = oldList[last];
+      oldList[slot] = lastNode;
+      S.districtSlot[lastNode] = slot;
+    }
+    oldList.pop();
+    const newList = S.districtNodes[newD];
+    S.districtSlot[n] = newList.length;
+    newList.push(n);
+    S.assignment[n] = newD;
+  }
+  S.pops[d1] = newPop_d1; S.pops[d2] = newPop_d2;
+  S.ikts[d1] = newIkt_d1; S.ikts[d2] = newIkt_d2;
+  S.muhs[d1] = newMuh_d1; S.muhs[d2] = newMuh_d2;
+  for (const [key, , newC] of ilCountChanges) {
+    if (newC === 0) S.ilDistCount.delete(key);
+    else S.ilDistCount.set(key, newC);
+  }
+  for (const [il, delta] of ilNDistDelta) {
+    S.nDistrictsForIl.set(il, (S.nDistrictsForIl.get(il) || 0) + delta);
+  }
+  S.ilSplits = newIlSplits;
+  S.cutEdges = newCutEdges;
+  // Update cutFlat: remove losers (swap-pop), append gainers
+  for (let i = 0; i < cutLose.length; i++) {
+    const eid = cutLose[i];
+    const slot = S.cutSlot.get(eid);
+    if (slot === undefined) continue;
+    const last = S.cutFlat.length - 1;
+    if (slot !== last) {
+      const lastEid = S.cutFlat[last];
+      S.cutFlat[slot] = lastEid;
+      S.cutSlot.set(lastEid, slot);
+    }
+    S.cutFlat.pop();
+    S.cutSlot.delete(eid);
+  }
+  for (let i = 0; i < cutGain.length; i++) {
+    const eid = cutGain[i];
+    S.cutSlot.set(eid, S.cutFlat.length);
+    S.cutFlat.push(eid);
+  }
+  S.score = proposed;
+  if (S.score < S.bestScore) {
+    S.bestScore = S.score;
+    S.bestAssignment.set(S.assignment);
+  }
+  // Cleanup marker buffers
+  for (let i = 0; i < r.nStrict; i++) inStrict[strictNodes[i]] = 0;
+  for (let ci = 0; ci < nChanged; ci++) isChanged[changedNodes[ci]] = 0;
+  // Build a small Array of changed node ids for the caller (used to build the
+  // tick diff). Allocation cost: ~70 ints per accepted step.
+  const changed = new Array(nChanged);
+  for (let i = 0; i < nChanged; i++) changed[i] = changedNodes[i];
+  return changed;
+}
+
+self.onmessage = (e) => {
+  const m = e.data;
+  if (m.type === 'init') {
+    regions[m.key] = {
+      adj: m.adj.map(a => new Int32Array(a)),
+      pop: new Float64Array(m.pop),
+      ikt: new Float64Array(m.iktidar),
+      muh: new Float64Array(m.muhalefet),
+      il: new Int32Array(m.il),
+      N: m.pop.length,
+      totalPop: m.pop.reduce((a, b) => a + b, 0),
+    };
+    self.postMessage({ type: 'inited', key: m.key });
+    return;
+  }
+  if (m.type === 'pause')  { paused = true; return; }
+  if (m.type === 'resume') { paused = false; return; }
+  if (m.type === 'abort')  { aborted = true; return; }
+
+  if (m.type === 'run') {
+    aborted = false; paused = false;
+    const R = regions[m.key];
+    if (!R) { self.postMessage({ type: 'error', key: m.key, msg: 'region not initialized' }); return; }
+    R.totalDist = m.k;
+    const tol = m.tol;
+    const weights = m.weights;
+    const rng = mkRng(m.seed | 0);
+
+    self.postMessage({ type: 'status', key: m.key, msg: `Building partition (k=${m.k})…` });
+    let assignment;
+    try {
+      assignment = initialPartition(R, m.k, tol, rng, (d, n) => {
+        self.postMessage({ type: 'progress', key: m.key, d, n });
+      });
+    } catch (err) {
+      self.postMessage({ type: 'error', key: m.key, msg: err.message });
+      return;
+    }
+    if (aborted) { self.postMessage({ type: 'done', key: m.key, aborted: true }); return; }
+
+    // Build maintained state once; ReCom updates it incrementally.
+    const S = buildState(R, m.k, assignment);
+    S.score = scoreFromState(S, weights);
+    S.bestScore = S.score;
+    S.bestAssignment.set(S.assignment);
+
+    // Initial partition: send full assignment as transferable buffer.
+    const initBuf = S.assignment.slice().buffer;
+    self.postMessage({
+      type: 'partition', key: m.key,
+      assignment: initBuf,
+      score: S.score, iter: 0,
+      metrics: metricsFromState(S),
+    }, [initBuf]);
+
+    let iter = 0;
+    let lastPost = 0;
+    const totalIters = m.iters;
+    const T0 = m.T0 || 0;
+
+    // Track which nodes changed since last post to send as a diff.
+    // Using an Int32Array-backed accumulator with a sparse "seen" bitmap.
+    const seenChanged = new Uint8Array(R.N);
+    const pendingNodes = [];
+
+    const tick = () => {
+      if (aborted) {
+        const buf = S.bestAssignment.slice().buffer;
+        self.postMessage({ type: 'done', key: m.key, aborted: true,
+          assignment: buf, score: S.bestScore,
+          metrics: metricsFromState(S) }, [buf]);
+        return;
+      }
+      if (paused) { setTimeout(tick, 100); return; }
+
+      const BATCH = 30;
+      for (let b = 0; b < BATCH && iter < totalIters; b++, iter++) {
+        const T = T0 * (1 - iter / totalIters);
+        const changed = recomStepInc(S, tol, weights, T, rng);
+        if (changed) {
+          for (let ci = 0; ci < changed.length; ci++) {
+            const n = changed[ci];
+            if (!seenChanged[n]) { seenChanged[n] = 1; pendingNodes.push(n); }
+          }
+        }
+      }
+
+      const now = (typeof performance !== 'undefined') ? performance.now() : Date.now();
+      if (now - lastPost > 200 || iter >= totalIters) {
+        lastPost = now;
+        // Build diff: pairs of (node, newDistrict)
+        const diff = new Int32Array(pendingNodes.length * 2);
+        for (let i = 0; i < pendingNodes.length; i++) {
+          const n = pendingNodes[i];
+          diff[i * 2] = n;
+          diff[i * 2 + 1] = S.assignment[n];
+          seenChanged[n] = 0;
+        }
+        pendingNodes.length = 0;
+        const diffBuf = diff.buffer;
+        self.postMessage({
+          type: 'tick', key: m.key,
+          iter, score: S.score, bestScore: S.bestScore,
+          diff: diffBuf,
+          metrics: metricsFromState(S),
+        }, [diffBuf]);
+      }
+      if (iter < totalIters) setTimeout(tick, 0);
+      else {
+        const buf = S.bestAssignment.slice().buffer;
+        self.postMessage({
+          type: 'done', key: m.key,
+          assignment: buf,
+          score: S.bestScore, iter,
+          metrics: metricsFromState(S),
+        }, [buf]);
+      }
+    };
+    tick();
+  }
+};
+</script>
+
+<!-- ═══════════════════════════════════════════════════════════════════
+     Main thread
+     ═══════════════════════════════════════════════════════════════ -->
+<script>
+'use strict';
+
+const REGIONS = [
+  { key: 'marmara',           label: 'Marmara' },
+  { key: 'ic_anadolu',        label: 'İç Anadolu' },
+  { key: 'ege',               label: 'Ege' },
+  { key: 'akdeniz',           label: 'Akdeniz' },
+  { key: 'karadeniz',         label: 'Karadeniz' },
+  { key: 'guneydogu_anadolu', label: 'Güneydoğu Anadolu' },
+  { key: 'dogu_anadolu',      label: 'Doğu Anadolu' },
+];
+
+const TR_BBOX_FEATURE = {
+  type: 'Feature', properties: {},
+  geometry: { type: 'Polygon', coordinates: [[
+    [25.5, 35.7], [45.2, 35.7], [45.2, 42.4], [25.5, 42.4], [25.5, 35.7]
+  ]]}
+};
+
+const state = {
+  regions: {},
+  active: 'national',   // 'national' or a region key
+  workers: {},          // region key -> Worker (one worker per region, run in parallel)
+  vpd: 100000,
+  weights: { cutEdges: 1, popDev: 50, meanMedian: 0, effGap: 0, ilSplits: 0 },
+  tol: 0.10,
+  scoreHist: [],
+  colorMode: 'districts',
+  pathEls: {},
+  running: new Set(),   // keys of regions currently running
+  paused: false,
+};
+
+const $ = (id) => document.getElementById(id);
+const getCSSVar = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+
+$('theme-light').onclick = () => setTheme('light');
+$('theme-dark').onclick  = () => setTheme('dark');
+function setTheme(t) {
+  document.documentElement.classList.toggle('dark', t === 'dark');
+  $('theme-light').classList.toggle('active', t === 'light');
+  $('theme-dark').classList.toggle('active',  t === 'dark');
+  recolorAll(); drawScoreChart();
+}
+
+function renderRegionList() {
+  const el = $('region-list'); el.innerHTML = '';
+  // National card at top — default selection, shows aggregate metrics.
+  const nat = document.createElement('div');
+  nat.className = 'region-card' + (state.active === 'national' ? ' active' : '');
+  nat.onclick = () => selectRegion('national');
+  let totalPop = 0, totalSeats = 0, completed = 0, total = 0;
+  for (const meta of REGIONS) {
+    const r = state.regions[meta.key];
+    if (r?.totalPop) {
+      totalPop += r.totalPop;
+      totalSeats += Math.max(2, Math.round(r.totalPop / state.vpd));
+      total++;
+      if (r.status === 'done') completed++;
+    }
+  }
+  const popLabel = totalPop ? (totalPop / 1e6).toFixed(2) + 'M' : '—';
+  const seatLabel = totalSeats || '—';
+  const natDot = total === 0 ? 'loading' : (completed === REGIONS.length ? 'done' : (state.running.size > 0 ? 'running' : 'idle'));
+  nat.innerHTML = `
+    <div class="nm" style="font-weight:800">National</div>
+    <div class="seats">${seatLabel}</div>
+    <div class="meta"><span class="dot ${natDot}"></span>${popLabel} · ${completed}/${REGIONS.length} computed</div>
+  `;
+  el.appendChild(nat);
+  // Region cards
+  for (const meta of REGIONS) {
+    const r = state.regions[meta.key];
+    const card = document.createElement('div');
+    card.className = 'region-card' + (state.active === meta.key ? ' active' : '');
+    card.onclick = () => selectRegion(meta.key);
+    const seats = r?.totalPop ? Math.max(2, Math.round(r.totalPop / state.vpd)) : '—';
+    const pop = r?.totalPop ? (r.totalPop / 1e6).toFixed(2) + 'M' : '—';
+    const status = r?.status || 'loading';
+    card.innerHTML = `
+      <div class="nm">${meta.label}</div>
+      <div class="seats">${seats}</div>
+      <div class="meta"><span class="dot ${status}"></span>${pop} · ${status}</div>
+    `;
+    el.appendChild(card);
+  }
+}
+
+function selectRegion(key) {
+  state.active = key;
+  renderRegionList();
+  drawLegend();
+  updateMetricsPanel();
+  if (key === 'national') {
+    state.scoreHist = nationalScoreHist();
+  } else {
+    const r = state.regions[key];
+    state.scoreHist = r?.scoreHist || [];
+  }
+  drawScoreChart();
+  updateButtons();
+}
+
+// Build a national-equivalent score history by summing each region's series
+// at corresponding indices (zero-padded). Useful when "Run all 7" runs
+// regions sequentially — we want to visualize the full sweep.
+function nationalScoreHist() {
+  const out = [];
+  let maxLen = 0;
+  for (const meta of REGIONS) {
+    const r = state.regions[meta.key];
+    if (r?.scoreHist?.length > maxLen) maxLen = r.scoreHist.length;
+  }
+  // Just concatenate per-region series back-to-back so the chart shows
+  // the chronological run-all-7 progress.
+  for (const meta of REGIONS) {
+    const r = state.regions[meta.key];
+    if (r?.scoreHist?.length) for (const s of r.scoreHist) out.push(s);
+  }
+  return out;
+}
+
+$('in-vpd').oninput = (e) => {
+  state.vpd = Math.max(10000, Math.min(2000000, +e.target.value || 100000));
+  renderRegionList(); updateHeaderTotals();
+};
+
+const tolTrack = $('tol-track');
+const tolFill  = $('tol-fill');
+const tolThumb = $('tol-thumb');
+const tolLabel = $('tol-label');
+function setTolUI(t) {
+  state.tol = t;
+  const pct = t / 0.30;
+  tolFill.style.width = (pct * 100) + '%';
+  tolThumb.style.left = (pct * 100) + '%';
+  tolLabel.textContent = `±${(t * 100).toFixed(1)}%`;
+}
+setTolUI(0.10);
+let tolDrag = false;
+const handleTol = (e) => {
+  const r = tolTrack.getBoundingClientRect();
+  const x = ((e.touches ? e.touches[0].clientX : e.clientX) - r.left) / r.width;
+  const t = Math.max(0.01, Math.min(0.30, x * 0.30));
+  setTolUI(Math.round(t * 200) / 200);
+};
+tolTrack.addEventListener('mousedown', (e) => { tolDrag = true; handleTol(e); });
+window.addEventListener('mousemove', (e) => { if (tolDrag) handleTol(e); });
+window.addEventListener('mouseup',   () => tolDrag = false);
+
+document.querySelectorAll('.check-row').forEach(el => {
+  el.onclick = () => {
+    el.classList.toggle('on');
+    const k = el.dataset.key;
+    state.weights[k] = el.classList.contains('on') ? defaultWeight(k) : 0;
+  };
+});
+function defaultWeight(k) {
+  if (k === 'cutEdges')   return 1;
+  if (k === 'popDev')     return 50;
+  if (k === 'meanMedian') return 5;
+  if (k === 'effGap')     return 5;
+  if (k === 'ilSplits')   return 2;
+  return 1;
+}
+
+$('color-districts').onclick = () => { state.colorMode = 'districts'; setColorMode(); };
+$('color-partisan').onclick  = () => { state.colorMode = 'partisan';  setColorMode(); };
+function setColorMode() {
+  $('color-districts').classList.toggle('active', state.colorMode === 'districts');
+  $('color-partisan').classList.toggle('active',  state.colorMode === 'partisan');
+  recolorAll(); drawLegend();
+}
+
+$('btn-start').onclick   = startRun;
+$('btn-pause').onclick   = pauseToggle;
+$('btn-reset').onclick   = resetRegion;
+$('btn-runall').onclick  = startRunAll;
+$('btn-export').onclick  = exportGeoJSON;
+
+function status(l, r, isErr) {
+  $('status-l').textContent = l;
+  $('status-l').classList.toggle('err', !!isErr);
+  $('status-r').textContent = r ?? '';
+}
+
+function updateButtons() {
+  const isNat = state.active === 'national';
+  const r = isNat ? null : state.regions[state.active];
+  const allReady = REGIONS.every(m => state.regions[m.key]?.status && state.regions[m.key].status !== 'loading');
+  const activeRunning = !isNat && state.running.has(state.active);
+  const anyRunning = state.running.size > 0;
+  // Run sel. only blocked if THIS region is already running.
+  // Run all 7 only blocked if ALL regions are running (or none ready).
+  const allRunning = state.running.size === REGIONS.length;
+  $('btn-start').disabled  = isNat || !r || r.status === 'loading' || activeRunning;
+  $('btn-pause').disabled  = !anyRunning;
+  $('btn-reset').disabled  = isNat || !r || (r.status !== 'done' && r.status !== 'error') || activeRunning;
+  $('btn-runall').disabled = !allReady || allRunning;
+  $('btn-export').disabled = isNat ? !nationalHasAnyAssignment() : !r?.assignment;
+  if (isNat) $('btn-start').textContent = 'Pick region';
+  else $('btn-start').textContent = `Run ${REGIONS.find(m => m.key === state.active)?.label || ''}`;
+}
+function nationalHasAnyAssignment() {
+  for (const meta of REGIONS) if (state.regions[meta.key]?.assignment) return true;
+  return false;
+}
+
+async function bootRegions() {
+  $('progress').style.display = 'flex';
+  $('progress-fill').style.width = '0%';
+  $('progress-pct').textContent = '0 / 7';
+  for (const meta of REGIONS) state.regions[meta.key] = { status: 'loading' };
+  renderRegionList();
+  setupSvg();
+  await initWorkerPool();
+
+  const fetches = REGIONS.map(meta => fetch(`regions/tr_${meta.key}.topo.json`)
+    .then(r => { if (!r.ok) throw new Error(`fetch ${meta.key}: ${r.status}`); return r.json(); })
+    .then(tj => ({ meta, tj }))
+  );
+
+  let done = 0;
+  for (const promise of fetches) {
+    try {
+      const { meta, tj } = await promise;
+      processRegion(meta, tj);
+      done++;
+      $('progress-fill').style.width = (100 * done / REGIONS.length) + '%';
+      $('progress-pct').textContent = `${done} / 7`;
+      $('progress-ttl').textContent = `Loaded ${meta.label}`;
+      renderRegionList();
+      updateHeaderTotals();
+    } catch (err) {
+      console.error(err); status(err.message, '', true);
+    }
+  }
+
+  $('progress').style.display = 'none';
+  selectRegion('national');
+  updateButtons();
+  status('Ready. Pick a region and Run, or Run all 7.', '');
+}
+
+function setupSvg() {
+  const svg = d3.select('#map');
+  svg.selectAll('*').remove();
+  const w = svg.node().clientWidth, h = svg.node().clientHeight;
+  svg.attr('viewBox', `0 0 ${w} ${h}`);
+  state.proj = d3.geoIdentity().reflectY(true).fitExtent([[8, 8], [w - 8, h - 8]], TR_BBOX_FEATURE);
+}
+
+function processRegion(meta, tj) {
+  const fc = topojson.feature(tj, tj.objects.mahalle);
+  const N = fc.features.length;
+  const pop = new Float64Array(N), ikt = new Float64Array(N), muh = new Float64Array(N);
+  const il = new Int32Array(N);
+  let totalPop = 0;
+  for (let i = 0; i < N; i++) {
+    const p = fc.features[i].properties;
+    pop[i] = p.POP || 0; ikt[i] = p.IKTIDAR || 0; muh[i] = p.MUHALEFET || 0;
+    il[i] = p.IL || 0; totalPop += pop[i];
+  }
+
+  const path = d3.geoPath(state.proj);
+  const svgEl = d3.select('#map').node();
+  const els = new Array(N);
+  const ink = getCSSVar('--ink');
+  const cardBg = getCSSVar('--card-bg');
+  for (let i = 0; i < N; i++) {
+    const d = path(fc.features[i]) || '';
+    const el = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    el.setAttribute('d', d);
+    el.setAttribute('fill', cardBg);
+    el.setAttribute('stroke', ink);
+    el.setAttribute('stroke-width', '0.4');
+    el.setAttribute('stroke-opacity', '0.35');
+    el.dataset.region = meta.key; el.dataset.idx = i;
+    el.style.cursor = 'pointer';
+    el.addEventListener('click', () => selectRegion(meta.key));
+    svgEl.appendChild(el);
+    els[i] = el;
+  }
+  state.pathEls[meta.key] = els;
+
+  const adj = buildAdjacency(tj);
+  bridgeIslands(adj, fc.features, N);
+
+  state.workers[meta.key].postMessage({
+    type: 'init', key: meta.key,
+    adj: adj.map(a => Array.from(a)),
+    pop: Array.from(pop),
+    iktidar: Array.from(ikt),
+    muhalefet: Array.from(muh),
+    il: Array.from(il),
+  });
+
+  state.regions[meta.key] = {
+    topo: tj, features: fc.features, pop, ikt, muh, il, N, totalPop, adj,
+    status: 'idle', assignment: null, bestScore: Infinity, scoreHist: [],
+    iter: 0, k: 0, metrics: null, label: meta.label,
+  };
+}
+
+function buildAdjacency(tj) {
+  const geoms = tj.objects.mahalle.geometries;
+  const N = geoms.length;
+  const arcMap = new Map();
+  geoms.forEach((g, i) => {
+    const visit = (rings) => {
+      for (const ring of rings) for (const ai of ring) {
+        const k = ai < 0 ? ~ai : ai;
+        let s = arcMap.get(k);
+        if (!s) { s = []; arcMap.set(k, s); }
+        s.push(i);
+      }
+    };
+    if (g.type === 'Polygon') visit(g.arcs);
+    else if (g.type === 'MultiPolygon') for (const p of g.arcs) visit(p);
+  });
+  const adj = Array.from({ length: N }, () => new Set());
+  for (const polys of arcMap.values()) {
+    if (polys.length < 2) continue;
+    const uniq = [...new Set(polys)];
+    for (let a = 0; a < uniq.length; a++) for (let b = a + 1; b < uniq.length; b++) {
+      adj[uniq[a]].add(uniq[b]); adj[uniq[b]].add(uniq[a]);
+    }
+  }
+  return adj.map(s => Int32Array.from(s));
+}
+
+function bridgeIslands(adj, features, N) {
+  const cents = features.map(f => {
+    const g = f.geometry;
+    const ring = (g.type === 'Polygon') ? g.coordinates[0] : g.coordinates[0][0];
+    let x = 0, y = 0;
+    for (const [a, b] of ring) { x += a; y += b; }
+    return [x / ring.length, y / ring.length];
+  });
+  while (true) {
+    const seen = new Int32Array(N).fill(-1);
+    const comps = [];
+    for (let i = 0; i < N; i++) {
+      if (seen[i] !== -1) continue;
+      const cid = comps.length;
+      const c = []; const q = [i]; seen[i] = cid;
+      while (q.length) { const u = q.pop(); c.push(u); for (const v of adj[u]) if (seen[v] === -1) { seen[v] = cid; q.push(v); } }
+      comps.push(c);
+    }
+    if (comps.length <= 1) break;
+    comps.sort((a, b) => b.length - a.length);
+    const target = comps[comps.length - 1];
+    let bI = -1, bJ = -1, bD = Infinity;
+    for (const i of target) {
+      const [cx, cy] = cents[i];
+      for (let cidx = 0; cidx < comps.length - 1; cidx++) {
+        for (const j of comps[cidx]) {
+          const dx = cents[j][0] - cx, dy = cents[j][1] - cy;
+          const d2 = dx * dx + dy * dy;
+          if (d2 < bD) { bD = d2; bI = i; bJ = j; }
+        }
+      }
+    }
+    if (bI === -1) break;
+    adj[bI] = Int32Array.from([...adj[bI], bJ]);
+    adj[bJ] = Int32Array.from([...adj[bJ], bI]);
+  }
+}
+
+async function initWorkerPool() {
+  // One worker per region — they run independently, so "Run all 7" can
+  // saturate every available CPU core instead of being bottlenecked by
+  // a single worker thread.
+  const src = document.getElementById('worker-src').textContent;
+  const blob = new Blob([src], { type: 'application/javascript' });
+  const url = URL.createObjectURL(blob);
+  state.workers = {};
+  for (const meta of REGIONS) {
+    const w = new Worker(url);
+    w.onmessage = onWorkerMsg;
+    state.workers[meta.key] = w;
+  }
+}
+
+function onWorkerMsg(e) {
+  const m = e.data;
+  if (m.type === 'inited') return;
+  const r = state.regions[m.key];
+  if (!r) return;
+
+  if (m.type === 'status') { if (m.key === state.active || state.active === 'national') status(m.msg, ''); return; }
+  if (m.type === 'progress') { if (m.key === state.active || state.active === 'national') status(`Building ${r.label}: ${m.d}/${m.n}`, ''); return; }
+
+  if (m.type === 'partition' || m.type === 'done') {
+    // Full assignment arrived as transferable ArrayBuffer
+    if (m.assignment) r.assignment = new Int32Array(m.assignment);
+    if (m.metrics) r.metrics = m.metrics;
+    if (m.iter !== undefined) r.iter = m.iter;
+    if (m.score !== undefined) r.bestScore = m.score;
+    if (m.score !== undefined && Number.isFinite(m.score)) {
+      if (!r.scoreHist) r.scoreHist = [];
+      r.scoreHist.push(m.score);
+    }
+
+    // Recolor full region (initial build or final result)
+    recolorRegion(m.key);
+    if (state.active === m.key || state.active === 'national') {
+      state.scoreHist = state.active === 'national' ? nationalScoreHist() : r.scoreHist;
+      drawScoreChart();
+      updateMetricsPanel();
+      if (m.type === 'partition') status(`${r.label}: partition built`, `iter 0`);
+      else status(`${r.label}: done`, `iter ${m.iter ?? '?'} · best ${m.score?.toFixed?.(0) ?? '—'}`);
+    }
+
+    if (m.type === 'done') {
+      r.status = m.aborted ? 'idle' : 'done';
+      state.running.delete(m.key);
+      renderRegionList();
+      updateButtons();
+    }
+    return;
+  }
+
+  if (m.type === 'tick') {
+    // Apply diff: pairs of [node, newDistrict]
+    if (m.diff && r.assignment) {
+      const diff = new Int32Array(m.diff);
+      for (let i = 0; i < diff.length; i += 2) {
+        r.assignment[diff[i]] = diff[i + 1];
+      }
+      // Recolor only the changed paths — fast path
+      recolorPaths(m.key, diff);
+    }
+    if (m.metrics) r.metrics = m.metrics;
+    if (m.iter !== undefined) r.iter = m.iter;
+    if (m.bestScore !== undefined) r.bestScore = m.bestScore;
+    if (m.score !== undefined && Number.isFinite(m.score)) {
+      if (!r.scoreHist) r.scoreHist = [];
+      r.scoreHist.push(m.score);
+    }
+    if (state.active === m.key || state.active === 'national') {
+      state.scoreHist = state.active === 'national' ? nationalScoreHist() : r.scoreHist;
+      drawScoreChart();
+      updateMetricsPanel();
+      // For Run all 7, show aggregate progress instead of latest tick spam
+      if (state.running.size > 1) {
+        const total = state.running.size;
+        status(`Running ${total} regions in parallel`, [...state.running].map(k => state.regions[k].label).join(', '));
+      } else {
+        status(`${r.label}: running`, `iter ${m.iter} · score ${m.score?.toFixed?.(0)} · best ${r.bestScore?.toFixed?.(0)}`);
+      }
+    }
+    return;
+  }
+
+  if (m.type === 'error') {
+    r.status = 'error';
+    state.running.delete(m.key);
+    renderRegionList();
+    updateButtons();
+    if (m.key === state.active || state.active === 'national') status(`${r.label}: ${m.msg}`, '', true);
+  }
+}
+
+function startRun() {
+  if (state.active === 'national') return;
+  if (state.running.has(state.active)) return;
+  runRegion(state.active);
+}
+
+function startRunAll() {
+  // Kick off every region's worker in parallel — they're independent.
+  for (const meta of REGIONS) {
+    if (state.regions[meta.key]?.status === 'loading') continue;
+    if (state.running.has(meta.key)) continue;
+    runRegion(meta.key);
+  }
+}
+
+function runRegion(key) {
+  const r = state.regions[key];
+  if (!r) return;
+  const k = Math.max(2, Math.round(r.totalPop / state.vpd));
+  r.status = 'running'; r.scoreHist = []; r.iter = 0; r.bestScore = Infinity; r.k = k;
+  state.running.add(key);
+  if (key === state.active) state.scoreHist = [];
+  renderRegionList(); updateButtons();
+  state.workers[key].postMessage({
+    type: 'run', key, k,
+    tol: state.tol, weights: { ...state.weights },
+    iters: +$('in-iters').value || 2000,
+    seed: (Date.now() ^ key.charCodeAt(0) ^ (k * 1009)) & 0x7FFFFFFF,
+    T0: 0,
+  });
+}
+
+function pauseToggle() {
+  state.paused = !state.paused;
+  $('btn-pause').textContent = state.paused ? 'Resume' : 'Pause';
+  // Pause/resume every running worker
+  for (const key of state.running) {
+    state.workers[key].postMessage({ type: state.paused ? 'pause' : 'resume' });
+  }
+}
+
+function resetRegion() {
+  if (state.active === 'national') return;
+  const r = state.regions[state.active];
+  if (!r) return;
+  if (state.running.has(state.active)) {
+    state.workers[state.active].postMessage({ type: 'abort' });
+  }
+  r.assignment = null; r.scoreHist = []; r.iter = 0; r.metrics = null; r.status = 'idle';
+  state.scoreHist = [];
+  for (const el of state.pathEls[state.active] || []) el.setAttribute('fill', getCSSVar('--card-bg'));
+  renderRegionList(); drawScoreChart(); updateMetricsPanel(); updateButtons();
+  status(`${r.label}: reset`, '');
+}
+
+function buildPalette(n) {
+  const pal = new Array(n);
+  for (let i = 0; i < n; i++) {
+    const h = (i * 137.508) % 360;
+    const s = 60 + (i % 3) * 8;
+    const l = 55 + (i % 5) * 4;
+    pal[i] = `hsl(${h.toFixed(1)},${s}%,${l}%)`;
+  }
+  return pal;
+}
+
+function recolorRegion(key) {
+  const r = state.regions[key];
+  const els = state.pathEls[key];
+  if (!r || !els) return;
+  const cardBg = getCSSVar('--card-bg');
+  if (!r.assignment) {
+    for (const el of els) el.setAttribute('fill', cardBg);
+    return;
+  }
+  if (state.colorMode === 'districts') {
+    const k = r.k || (Math.max(...r.assignment) + 1);
+    if (!r._palette || r._palette.length !== k) r._palette = buildPalette(k);
+    const pal = r._palette;
+    for (let i = 0; i < r.N; i++) els[i].setAttribute('fill', pal[r.assignment[i]]);
+  } else {
+    const k = r.k || (Math.max(...r.assignment) + 1);
+    const m = new Float64Array(k), kk = new Float64Array(k);
+    for (let i = 0; i < r.N; i++) { m[r.assignment[i]] += r.muh[i]; kk[r.assignment[i]] += r.ikt[i]; }
+    const partisan = new Array(k);
+    for (let d = 0; d < k; d++) { const t = m[d] + kk[d]; partisan[d] = t > 0 ? m[d] / t : 0.5; }
+    r._partisan = partisan;
+    for (let i = 0; i < r.N; i++) els[i].setAttribute('fill', partisanColor(partisan[r.assignment[i]]));
+  }
+}
+
+// Fast diff-recolor: only updates the SVG paths for nodes whose district
+// changed. Called every tick. ~50 attribute writes vs 6,577 for a full recolor.
+function recolorPaths(key, diff) {
+  const r = state.regions[key];
+  const els = state.pathEls[key];
+  if (!r || !els) return;
+  if (state.colorMode === 'districts') {
+    const k = r.k;
+    if (!r._palette || r._palette.length !== k) r._palette = buildPalette(k);
+    const pal = r._palette;
+    for (let i = 0; i < diff.length; i += 2) {
+      const n = diff[i], d = diff[i + 1];
+      els[n].setAttribute('fill', pal[d]);
+    }
+  } else {
+    // Partisan colors depend on per-district shares which change every tick.
+    // For the changed nodes' districts we recompute share from the now-updated
+    // assignment + muh/ikt sums. This is bounded by the changed districts (≤ 2),
+    // and we recolor every node in those districts.
+    const k = r.k;
+    if (!r._partisan) r._partisan = new Array(k).fill(0.5);
+    // Find unique districts touched
+    const seenD = new Set();
+    for (let i = 1; i < diff.length; i += 2) seenD.add(diff[i]);
+    // Recompute their shares and recolor every node currently in them
+    for (const d of seenD) {
+      let mSum = 0, kSum = 0;
+      for (let i = 0; i < r.N; i++) {
+        if (r.assignment[i] === d) { mSum += r.muh[i]; kSum += r.ikt[i]; }
+      }
+      const t = mSum + kSum;
+      r._partisan[d] = t > 0 ? mSum / t : 0.5;
+    }
+    // Recolor changed nodes (their share changed) AND nodes still in
+    // recomputed districts that were ALREADY in (since their share also moved)
+    // Optimization: just recolor changed nodes — close enough for live UI.
+    for (let i = 0; i < diff.length; i += 2) {
+      const n = diff[i], d = diff[i + 1];
+      els[n].setAttribute('fill', partisanColor(r._partisan[d]));
+    }
+  }
+}
+function recolorAll() {
+  for (const meta of REGIONS) recolorRegion(meta.key);
+}
+function partisanColor(s) {
+  const steps = ['#1e40af', '#2563eb', '#60a5fa', '#fde047', '#f87171', '#dc2626', '#991b1b'];
+  const x = Math.max(0, Math.min(1, (s - 0.30) / 0.40));
+  const idx = Math.round((1 - x) * 6);
+  return steps[idx];
+}
+
+function drawLegend() {
+  const lg = $('legend');
+  if (state.colorMode === 'partisan') {
+    lg.innerHTML = `
+      <span class="legend-chip"><span class="sw" style="background:#991b1b"></span>Iktidar</span>
+      <span class="legend-chip"><span class="sw" style="background:#fde047"></span>Tossup</span>
+      <span class="legend-chip"><span class="sw" style="background:#1e40af"></span>Muhalefet</span>
+    `;
+  } else {
+    if (state.active === 'national') {
+      let totalK = 0, completed = 0;
+      for (const meta of REGIONS) {
+        const r = state.regions[meta.key];
+        if (r?.k) totalK += r.k;
+        if (r?.status === 'done') completed++;
+      }
+      lg.innerHTML = `<span style="font-weight:800;letter-spacing:0.04em">National · ${totalK || '—'} districts · ${completed}/7 computed</span>`;
+    } else {
+      const r = state.regions[state.active];
+      if (r?.assignment) lg.innerHTML = `<span style="font-weight:800;letter-spacing:0.04em">${r.label}: ${r.k} districts</span>`;
+      else lg.innerHTML = `<span style="font-weight:800;letter-spacing:0.04em">${r?.label || ''}</span>`;
+    }
+  }
+}
+
+function updateMetricsPanel() {
+  const m = state.active === 'national' ? aggregatedMetrics() : state.regions[state.active]?.metrics;
+  if (!m) {
+    ['m-popdev','m-cutedges','m-effgap','m-meanmed','m-seats'].forEach(id => $(id).textContent = '—');
+    $('seats-bar').style.display = 'none';
+    return;
+  }
+  $('m-popdev').textContent  = (m.popDev * 100).toFixed(2) + '%';
+  $('m-cutedges').textContent = m.cutEdges.toLocaleString();
+  $('m-effgap').textContent  = m.effGap == null ? '—' : (m.effGap * 100).toFixed(2) + '%';
+  $('m-meanmed').textContent = m.meanMed == null ? '—' : (m.meanMed * 100).toFixed(2) + '%';
+  $('m-seats').textContent   = `${m.muhSeats} / ${m.iktSeats}`;
+  const total = m.muhSeats + m.iktSeats;
+  if (total > 0) {
+    $('seats-bar').style.display = 'flex';
+    $('seg-m').style.cssText = `width:${100 * m.muhSeats / total}%;background:#1e40af`;
+    $('seg-i').style.cssText = `width:${100 * m.iktSeats / total}%;background:#991b1b`;
+  } else $('seats-bar').style.display = 'none';
+}
+
+// Aggregate over completed regions. popDev = max (worst region's worst).
+// cutEdges, ilSplits, seats sum. effGap / meanMed left null (not meaningful
+// to average across separately-electing regions; show per-region instead).
+function aggregatedMetrics() {
+  let popDev = 0, cutEdges = 0, ilSplitsTotal = 0;
+  let muhSeats = 0, iktSeats = 0;
+  let any = false;
+  for (const meta of REGIONS) {
+    const r = state.regions[meta.key];
+    if (!r?.metrics) continue;
+    any = true;
+    if (r.metrics.popDev > popDev) popDev = r.metrics.popDev;
+    cutEdges += r.metrics.cutEdges;
+    ilSplitsTotal += r.metrics.ilSplits;
+    muhSeats += r.metrics.muhSeats;
+    iktSeats += r.metrics.iktSeats;
+  }
+  if (!any) return null;
+  return { popDev, cutEdges, effGap: null, meanMed: null, muhSeats, iktSeats, ilSplits: ilSplitsTotal };
+}
+
+function drawScoreChart() {
+  const c = $('score-canvas');
+  const ctx = c.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const w = c.clientWidth, h = c.clientHeight;
+  c.width = w * dpr; c.height = h * dpr;
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, w, h);
+  const ink = getCSSVar('--ink');
+  ctx.strokeStyle = ink; ctx.lineWidth = 1;
+  ctx.strokeRect(0.5, 0.5, w - 1, h - 1);
+  if (state.scoreHist.length < 2) return;
+  const data = state.scoreHist;
+  const n = data.length;
+  let mn = Infinity, mx = -Infinity;
+  for (const v of data) { if (v < mn) mn = v; if (v > mx) mx = v; }
+  const span = mx - mn || 1;
+  ctx.beginPath();
+  for (let i = 0; i < n; i++) {
+    const x = (i / (n - 1)) * (w - 8) + 4;
+    const y = h - 4 - ((data[i] - mn) / span) * (h - 8);
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  }
+  ctx.strokeStyle = ink; ctx.lineWidth = 1.5; ctx.stroke();
+  ctx.fillStyle = getCSSVar('--muted');
+  ctx.font = '700 9px ui-monospace,monospace';
+  ctx.textAlign = 'right';
+  ctx.fillText(mx.toFixed(0), w - 4, 12);
+  ctx.fillText(mn.toFixed(0), w - 4, h - 4);
+}
+
+function updateHeaderTotals() {
+  let total = 0, seats = 0;
+  for (const meta of REGIONS) {
+    const r = state.regions[meta.key];
+    if (!r || !r.totalPop) continue;
+    total += r.totalPop;
+    seats += Math.max(2, Math.round(r.totalPop / state.vpd));
+  }
+  $('hdr-electorate').textContent = total ? (total / 1e6).toFixed(2) + 'M' : '—';
+  $('hdr-seats').textContent = seats || '—';
+}
+
+function exportGeoJSON() {
+  if (state.active === 'national') {
+    // Concatenate all regions; district IDs offset so national IDs are unique.
+    const features = [];
+    let offset = 0;
+    for (const meta of REGIONS) {
+      const r = state.regions[meta.key];
+      if (!r?.assignment) continue;
+      for (let i = 0; i < r.N; i++) {
+        features.push({
+          type: 'Feature',
+          geometry: r.features[i].geometry,
+          properties: {
+            ...r.features[i].properties,
+            district: r.assignment[i] + offset,
+            district_local: r.assignment[i],
+            region: meta.key,
+          },
+        });
+      }
+      offset += r.k;
+    }
+    const blob = new Blob([JSON.stringify({ type: 'FeatureCollection', features })], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `tr_national_${offset}d.geojson`;
+    a.click();
+    return;
+  }
+  const r = state.regions[state.active];
+  if (!r?.assignment) return;
+  const fc = {
+    type: 'FeatureCollection',
+    features: r.features.map((f, i) => ({
+      type: 'Feature', geometry: f.geometry,
+      properties: { ...f.properties, district: r.assignment[i] },
+    })),
+  };
+  const blob = new Blob([JSON.stringify(fc)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `tr_${state.active}_${r.k}d.geojson`;
+  a.click();
+}
+
+status('Booting…', '');
+window.addEventListener('resize', () => { drawScoreChart(); });
+bootRegions();
+</script>
+</body>
+</html>
