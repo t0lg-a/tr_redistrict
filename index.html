@@ -297,6 +297,7 @@
           <button class="cmd" id="btn-pause" disabled>Pause</button>
         </div>
         <button class="cmd go" id="btn-runall" disabled style="margin-bottom:8px">Run all 7</button>
+        <button class="cmd" id="btn-polish" disabled style="margin-bottom:8px" title="Single-mahalle flip moves to push popDev below ReCom's tolerance floor. Run after a normal run is done.">Polish (drop popDev)</button>
         <button class="cmd" id="btn-reset" disabled style="margin-bottom:8px">Reset region</button>
         <button class="cmd" id="btn-export" disabled>Export GeoJSON</button>
       </div>
@@ -1030,6 +1031,255 @@ function recomStepInc(S, tol, weights, T, rng) {
   return changed;
 }
 
+// Single-mahalle FLIP step: move one boundary node from an over-pop district
+// into an under-pop neighbor, or pull a boundary node from an over-pop neighbor
+// into an under-pop district. Used during Polish mode to fix sliver-district
+// imbalances that ReCom can't resolve (too few mahalles to find balanced cuts).
+//
+// Maintains every piece of S the way recomStepInc does. Greedy accept.
+// Returns array of changed node ids (length 1) on accept, null on reject.
+function flipStep(S, weights, rng) {
+  const R = S.R; const N = R.N; const kk = S.k;
+  const ideal = R.totalPop / kk;
+  // Find biggest |off| district to bias from
+  let dWorst = -1, worstAbs = -1;
+  for (let d = 0; d < kk; d++) {
+    const a = Math.abs(S.pops[d] - ideal);
+    if (a > worstAbs) { worstAbs = a; dWorst = d; }
+  }
+  if (worstAbs < ideal * 0.0001) return null;
+  const overWorst = S.pops[dWorst] > ideal;
+
+  // Build candidate list: boundary nodes between dWorst and an opposite-sign neighbor.
+  // If dWorst is over: nodes IN dWorst with neighbors in under-pop districts.
+  // If dWorst is under: nodes in over-pop neighbors that border dWorst.
+  const candidates = [];
+  const list = S.districtNodes[dWorst];
+  if (overWorst) {
+    for (let i = 0; i < list.length; i++) {
+      const n = list[i];
+      const adjN = R.adj[n];
+      for (let j = 0; j < adjN.length; j++) {
+        const w = adjN[j];
+        const dN = S.assignment[w];
+        if (dN === dWorst) continue;
+        if (S.pops[dN] < ideal) candidates.push(n, dWorst, dN);
+      }
+    }
+  } else {
+    for (let i = 0; i < list.length; i++) {
+      const n = list[i];
+      const adjN = R.adj[n];
+      for (let j = 0; j < adjN.length; j++) {
+        const w = adjN[j];
+        const dN = S.assignment[w];
+        if (dN === dWorst) continue;
+        if (S.pops[dN] > ideal) candidates.push(w, dN, dWorst);
+      }
+    }
+  }
+  if (candidates.length === 0) return null;
+  const nCands = candidates.length / 3;
+
+  // Try a few random candidates; first valid + score-improving wins.
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const ci = ((rng() * nCands) | 0) * 3;
+    const node = candidates[ci], dFrom = candidates[ci + 1], dTo = candidates[ci + 2];
+    const fromList = S.districtNodes[dFrom];
+    if (fromList.length <= 1) continue;
+
+    // Connectivity check: removing node from dFrom must leave dFrom connected.
+    // BFS from any other dFrom node, treating `node` as removed; reach all others.
+    let other = -1;
+    for (let i = 0; i < fromList.length; i++) if (fromList[i] !== node) { other = fromList[i]; break; }
+    if (other === -1) continue;
+    // Use a Set bound by district size (typically small)
+    const visited = new Set();
+    visited.add(node); visited.add(other);
+    const q = [other];
+    let count = 1;
+    while (q.length) {
+      const u = q.pop();
+      const adjU = R.adj[u];
+      for (let j = 0; j < adjU.length; j++) {
+        const w = adjU[j];
+        if (S.assignment[w] !== dFrom) continue;
+        if (visited.has(w)) continue;
+        visited.add(w); q.push(w); count++;
+      }
+    }
+    if (count !== fromList.length - 1) continue;  // would disconnect dFrom
+
+    // Compute deltas
+    const pn = R.pop[node], iktn = R.ikt[node], muhn = R.muh[node];
+    const newPopFrom = S.pops[dFrom] - pn, newPopTo = S.pops[dTo] + pn;
+    const newIktFrom = S.ikts[dFrom] - iktn, newIktTo = S.ikts[dTo] + iktn;
+    const newMuhFrom = S.muhs[dFrom] - muhn, newMuhTo = S.muhs[dTo] + muhn;
+
+    // Cut-edge transitions: walk node's neighbours
+    let dCut = 0;
+    const cutGain = [], cutLose = [];
+    const adjNode = R.adj[node];
+    for (let j = 0; j < adjNode.length; j++) {
+      const w = adjNode[j];
+      const dW = S.assignment[w];
+      const wasCut = (dFrom !== dW);
+      const willCut = (dTo !== dW);
+      if (wasCut !== willCut) {
+        const a = node < w ? node : w, b = node < w ? w : node;
+        const eid = a * N + b;
+        if (willCut) { dCut++; cutGain.push(eid); } else { dCut--; cutLose.push(eid); }
+      }
+    }
+    const newCutEdges = S.cutEdges + dCut;
+
+    // ilSplits delta: node moves from (il, dFrom) to (il, dTo)
+    const il = R.il[node];
+    const kFrom = il * S.k + dFrom, kTo = il * S.k + dTo;
+    const oldCFrom = S.ilDistCount.get(kFrom) || 0;
+    const oldCTo = S.ilDistCount.get(kTo) || 0;
+    const newCFrom = oldCFrom - 1, newCTo = oldCTo + 1;
+    let dIlSplits = 0;
+    if (oldCFrom > 0 && newCFrom === 0) dIlSplits--;
+    if (oldCTo === 0 && newCTo > 0) dIlSplits++;
+    const newIlSplits = S.ilSplits + dIlSplits;
+
+    // Proposed score
+    let newScore = 0;
+    if (weights.cutEdges) newScore += weights.cutEdges * newCutEdges;
+    if (weights.popDev) {
+      let maxDev = 0;
+      for (let d = 0; d < kk; d++) {
+        const p = (d === dFrom) ? newPopFrom : (d === dTo) ? newPopTo : S.pops[d];
+        const dev = Math.abs(p - ideal) / ideal;
+        if (dev > maxDev) maxDev = dev;
+      }
+      newScore += weights.popDev * (maxDev * 100) * (maxDev * 100);
+    }
+    if (weights.meanMedian || weights.effGap) {
+      let mean = 0, wd = 0, wr = 0, total = 0;
+      const shares = new Float64Array(kk);
+      for (let d = 0; d < kk; d++) {
+        const m = (d === dFrom) ? newMuhFrom : (d === dTo) ? newMuhTo : S.muhs[d];
+        const i_ = (d === dFrom) ? newIktFrom : (d === dTo) ? newIktTo : S.ikts[d];
+        const t = m + i_;
+        const sh = t > 0 ? m / t : 0.5;
+        shares[d] = sh; mean += sh;
+        if (weights.effGap && t > 0) {
+          if (sh > 0.5) { wd += (sh - 0.5) * t; wr += (1 - sh) * t; }
+          else          { wd += sh * t; wr += (0.5 - sh) * t; }
+          total += t;
+        }
+      }
+      mean /= kk;
+      if (weights.meanMedian) {
+        const sorted = Array.from(shares).sort((a, b) => a - b);
+        const median = kk % 2 ? sorted[(kk - 1) >> 1] : 0.5 * (sorted[kk / 2 - 1] + sorted[kk / 2]);
+        const mm = (mean - median) * 100;
+        newScore += weights.meanMedian * mm * mm;
+      }
+      if (weights.effGap) {
+        const eg = total > 0 ? (wd - wr) / total : 0;
+        newScore += weights.effGap * (eg * 100) * (eg * 100);
+      }
+    }
+    if (weights.ilSplits) newScore += weights.ilSplits * newIlSplits;
+
+    if (newScore >= S.score) continue;  // greedy reject
+
+    // ── Commit ──
+    // assignment + districtNodes (swap-pop)
+    const slot = S.districtSlot[node];
+    const last = fromList.length - 1;
+    if (slot !== last) {
+      const lN = fromList[last];
+      fromList[slot] = lN; S.districtSlot[lN] = slot;
+    }
+    fromList.pop();
+    const toList = S.districtNodes[dTo];
+    S.districtSlot[node] = toList.length;
+    toList.push(node);
+    S.assignment[node] = dTo;
+
+    S.pops[dFrom] = newPopFrom; S.pops[dTo] = newPopTo;
+    S.ikts[dFrom] = newIktFrom; S.ikts[dTo] = newIktTo;
+    S.muhs[dFrom] = newMuhFrom; S.muhs[dTo] = newMuhTo;
+
+    // ilDistCount + nDistrictsForIl + ilSplits
+    if (newCFrom === 0) S.ilDistCount.delete(kFrom);
+    else S.ilDistCount.set(kFrom, newCFrom);
+    S.ilDistCount.set(kTo, newCTo);
+    if (oldCFrom > 0 && newCFrom === 0) {
+      S.nDistrictsForIl.set(il, (S.nDistrictsForIl.get(il) || 0) - 1);
+    }
+    if (oldCTo === 0 && newCTo > 0) {
+      S.nDistrictsForIl.set(il, (S.nDistrictsForIl.get(il) || 0) + 1);
+    }
+    S.ilSplits = newIlSplits;
+
+    // cutFlat updates
+    for (let i = 0; i < cutLose.length; i++) {
+      const eid = cutLose[i];
+      const sl = S.cutSlot.get(eid);
+      if (sl === undefined) continue;
+      const li = S.cutFlat.length - 1;
+      if (sl !== li) {
+        const lEid = S.cutFlat[li];
+        S.cutFlat[sl] = lEid; S.cutSlot.set(lEid, sl);
+      }
+      S.cutFlat.pop(); S.cutSlot.delete(eid);
+    }
+    for (let i = 0; i < cutGain.length; i++) {
+      const eid = cutGain[i];
+      S.cutSlot.set(eid, S.cutFlat.length);
+      S.cutFlat.push(eid);
+    }
+    S.cutEdges = newCutEdges;
+    S.score = newScore;
+    if (S.score < S.bestScore) {
+      S.bestScore = S.score;
+      S.bestAssignment.set(S.assignment);
+    }
+    return [node];
+  }
+  return null;
+}
+
+// One ReCom + N flips combined step, with weights swap. During flip phase we
+// use {cutEdges:0, popDev:1} so cut-edge minimization can't block popDev gains
+// (the original score function cares about cutEdges and would reject 0.1%
+// popDev improvements that cost 5+ cut edges).
+function polishStep(S, tol, weights, rng, scratchScore) {
+  // 3 flip attempts under polish weights, then 1 ReCom under full weights.
+  const wPolish = scratchScore;  // pre-built {cutEdges:0, popDev:1, ilSplits:0}
+  const trueScore = S.score;
+  S.score = scoreFromState(S, wPolish);
+  const flipped1 = flipStep(S, wPolish, rng);
+  const flipped2 = flipStep(S, wPolish, rng);
+  const flipped3 = flipStep(S, wPolish, rng);
+  S.score = scoreFromState(S, weights);  // restore for ReCom under full weights
+  const recomChanged = recomStepInc(S, tol, weights, 0, rng);
+  // Aggregate changed node ids for tick diff
+  let total = 0;
+  if (flipped1) total += flipped1.length;
+  if (flipped2) total += flipped2.length;
+  if (flipped3) total += flipped3.length;
+  if (recomChanged) total += recomChanged.length;
+  if (total === 0) return null;
+  const out = new Array(total);
+  let oi = 0;
+  if (flipped1) for (const n of flipped1) out[oi++] = n;
+  if (flipped2) for (const n of flipped2) out[oi++] = n;
+  if (flipped3) for (const n of flipped3) out[oi++] = n;
+  if (recomChanged) for (const n of recomChanged) out[oi++] = n;
+  return out;
+}
+
+// State persists between 'run' and 'continue' so the user can polish
+// without losing the assignment they already optimized.
+let savedState = null;
+let savedKey = null;
+
 self.onmessage = (e) => {
   const m = e.data;
   if (m.type === 'init') {
@@ -1049,54 +1299,66 @@ self.onmessage = (e) => {
   if (m.type === 'resume') { paused = false; return; }
   if (m.type === 'abort')  { aborted = true; return; }
 
-  if (m.type === 'run') {
+  if (m.type === 'run' || m.type === 'continue') {
     aborted = false; paused = false;
     const R = regions[m.key];
     if (!R) { self.postMessage({ type: 'error', key: m.key, msg: 'region not initialized' }); return; }
-    R.totalDist = m.k;
     const tol = m.tol;
     const weights = m.weights;
+    const polish = !!m.polish;
     const rng = mkRng(m.seed | 0);
+    // Polish weights: only popDev matters during flip phase
+    const wPolish = { cutEdges: 0, popDev: 1, ilSplits: 0, meanMedian: 0, effGap: 0 };
 
-    self.postMessage({ type: 'status', key: m.key, msg: `Building partition (k=${m.k})…` });
-    let assignment;
-    try {
-      assignment = initialPartition(R, m.k, tol, rng, (d, n) => {
-        self.postMessage({ type: 'progress', key: m.key, d, n });
-      });
-    } catch (err) {
-      self.postMessage({ type: 'error', key: m.key, msg: err.message });
-      return;
+    let S;
+    if (m.type === 'continue') {
+      if (!savedState || savedKey !== m.key) {
+        self.postMessage({ type: 'error', key: m.key, msg: 'No state to continue from. Run first.' });
+        return;
+      }
+      S = savedState;
+      // Re-evaluate score under current weights (in case they changed)
+      S.score = scoreFromState(S, weights);
+      // Don't reset bestScore — keep the best across the whole session
+    } else {
+      // Fresh run: seed via recursive bipartition
+      R.totalDist = m.k;
+      self.postMessage({ type: 'status', key: m.key, msg: `Building partition (k=${m.k})…` });
+      let assignment;
+      try {
+        assignment = initialPartition(R, m.k, tol, rng, (d, n) => {
+          self.postMessage({ type: 'progress', key: m.key, d, n });
+        });
+      } catch (err) {
+        self.postMessage({ type: 'error', key: m.key, msg: err.message });
+        return;
+      }
+      if (aborted) { self.postMessage({ type: 'done', key: m.key, aborted: true }); return; }
+      S = buildState(R, m.k, assignment);
+      S.score = scoreFromState(S, weights);
+      S.bestScore = S.score;
+      S.bestAssignment.set(S.assignment);
+
+      // Initial partition: send full assignment as transferable buffer
+      const initBuf = S.assignment.slice().buffer;
+      self.postMessage({
+        type: 'partition', key: m.key,
+        assignment: initBuf,
+        score: S.score, iter: 0,
+        metrics: metricsFromState(S),
+      }, [initBuf]);
     }
-    if (aborted) { self.postMessage({ type: 'done', key: m.key, aborted: true }); return; }
-
-    // Build maintained state once; ReCom updates it incrementally.
-    const S = buildState(R, m.k, assignment);
-    S.score = scoreFromState(S, weights);
-    S.bestScore = S.score;
-    S.bestAssignment.set(S.assignment);
-
-    // Initial partition: send full assignment as transferable buffer.
-    const initBuf = S.assignment.slice().buffer;
-    self.postMessage({
-      type: 'partition', key: m.key,
-      assignment: initBuf,
-      score: S.score, iter: 0,
-      metrics: metricsFromState(S),
-    }, [initBuf]);
 
     let iter = 0;
     let lastPost = 0;
     const totalIters = m.iters;
     const T0 = m.T0 || 0;
-
-    // Track which nodes changed since last post to send as a diff.
-    // Using an Int32Array-backed accumulator with a sparse "seen" bitmap.
     const seenChanged = new Uint8Array(R.N);
     const pendingNodes = [];
 
     const tick = () => {
       if (aborted) {
+        savedState = S; savedKey = m.key;
         const buf = S.bestAssignment.slice().buffer;
         self.postMessage({ type: 'done', key: m.key, aborted: true,
           assignment: buf, score: S.bestScore,
@@ -1105,10 +1367,12 @@ self.onmessage = (e) => {
       }
       if (paused) { setTimeout(tick, 100); return; }
 
-      const BATCH = 30;
+      const BATCH = polish ? 8 : 30;  // polish does more work per iter (3 flips + 1 ReCom)
       for (let b = 0; b < BATCH && iter < totalIters; b++, iter++) {
         const T = T0 * (1 - iter / totalIters);
-        const changed = recomStepInc(S, tol, weights, T, rng);
+        const changed = polish
+          ? polishStep(S, tol, weights, rng, wPolish)
+          : recomStepInc(S, tol, weights, T, rng);
         if (changed) {
           for (let ci = 0; ci < changed.length; ci++) {
             const n = changed[ci];
@@ -1120,7 +1384,7 @@ self.onmessage = (e) => {
       const now = (typeof performance !== 'undefined') ? performance.now() : Date.now();
       if (now - lastPost > 200 || iter >= totalIters) {
         lastPost = now;
-        // Build diff: pairs of (node, newDistrict)
+        // Build diff: pairs of (node, newDistrict) — read fresh assignment
         const diff = new Int32Array(pendingNodes.length * 2);
         for (let i = 0; i < pendingNodes.length; i++) {
           const n = pendingNodes[i];
@@ -1139,6 +1403,7 @@ self.onmessage = (e) => {
       }
       if (iter < totalIters) setTimeout(tick, 0);
       else {
+        savedState = S; savedKey = m.key;
         const buf = S.bestAssignment.slice().buffer;
         self.postMessage({
           type: 'done', key: m.key,
@@ -1335,6 +1600,7 @@ $('btn-start').onclick   = startRun;
 $('btn-pause').onclick   = pauseToggle;
 $('btn-reset').onclick   = resetRegion;
 $('btn-runall').onclick  = startRunAll;
+$('btn-polish').onclick  = startPolish;
 $('btn-export').onclick  = exportGeoJSON;
 
 function status(l, r, isErr) {
@@ -1349,13 +1615,13 @@ function updateButtons() {
   const allReady = REGIONS.every(m => state.regions[m.key]?.status && state.regions[m.key].status !== 'loading');
   const activeRunning = !isNat && state.running.has(state.active);
   const anyRunning = state.running.size > 0;
-  // Run sel. only blocked if THIS region is already running.
-  // Run all 7 only blocked if ALL regions are running (or none ready).
   const allRunning = state.running.size === REGIONS.length;
   $('btn-start').disabled  = isNat || !r || r.status === 'loading' || activeRunning;
   $('btn-pause').disabled  = !anyRunning;
   $('btn-reset').disabled  = isNat || !r || (r.status !== 'done' && r.status !== 'error') || activeRunning;
   $('btn-runall').disabled = !allReady || allRunning;
+  // Polish needs an existing optimized state to refine
+  $('btn-polish').disabled = isNat || !r || r.status !== 'done' || activeRunning;
   $('btn-export').disabled = isNat ? !nationalHasAnyAssignment() : !r?.assignment;
   if (isNat) $('btn-start').textContent = 'Pick region';
   else $('btn-start').textContent = `Run ${REGIONS.find(m => m.key === state.active)?.label || ''}`;
@@ -1650,6 +1916,29 @@ function runRegion(key) {
     iters: +$('in-iters').value || 2000,
     seed: (Date.now() ^ key.charCodeAt(0) ^ (k * 1009)) & 0x7FFFFFFF,
     T0: 0,
+  });
+}
+
+// Polish: continue from the worker's saved state with single-mahalle flip moves
+// to push popDev below ReCom's tolerance floor. ReCom can't fix small districts
+// with 3-6 mahalles each because the merged-tree pop sums are too coarse to find
+// a balanced cut — flips move one mahalle at a time across the boundary instead.
+function startPolish() {
+  if (state.active === 'national') return;
+  const key = state.active;
+  const r = state.regions[key];
+  if (!r || r.status !== 'done') return;
+  if (state.running.has(key)) return;
+  r.status = 'running';
+  state.running.add(key);
+  renderRegionList(); updateButtons();
+  state.workers[key].postMessage({
+    type: 'continue', key,
+    tol: state.tol, weights: { ...state.weights },
+    iters: +$('in-iters').value || 2000,
+    seed: (Date.now() ^ key.charCodeAt(0) * 7919) & 0x7FFFFFFF,
+    T0: 0,
+    polish: true,
   });
 }
 

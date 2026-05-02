@@ -10,24 +10,31 @@ Turkey 2023 milletvekili election data, mahalle-level (precinct), 7 regions,
 `python3 -m http.server` from this folder if your browser blocks file:// fetches
 of the topojsons).
 
-## What it does
+## Workflow
 
-- Builds a population-balanced congressional map for each of the 7 NUTS-1
-  geographic regions (Marmara, İç Anadolu, Ege, Akdeniz, Karadeniz,
-  Doğu Anadolu, Güneydoğu Anadolu).
-- Districts are seeded via recursive bipartition of a random spanning tree.
-- ReCom optimizer iteratively merges two adjacent districts, builds a fresh
-  spanning tree on the merge, finds a balanced cut, and accepts moves that
-  reduce a weighted score (cut edges, population deviation, mean-median,
-  efficiency gap, il-splits — all configurable).
-- All 7 regions run in **parallel** workers — "Run all 7" finishes in roughly
-  the time of the slowest single region, not 7× that.
+1. **Run sel.** or **Run all 7** — recursive bipartition seed + ReCom optimization
+   for each region. All 7 regions run in parallel workers.
+2. **Polish (drop popDev)** — when a region shows status `done`, hit Polish.
+   This keeps the assignment you have and runs single-mahalle flip moves to push
+   popDev below ReCom's tolerance floor.
+
+## Why two modes
+
+ReCom is good at big restructuring but stalls when sliver districts (3–6 mahalles)
+appear. With so few mahalles, the merged-tree pop sums are too coarse to find a
+balanced cut within tolerance — popDev gets stuck around 10–15% no matter how
+many iterations you run.
+
+Polish mode does the right thing for that regime: it picks the worst district,
+finds a boundary mahalle in an opposite-sign neighbor, BFS-checks connectivity,
+and flips one mahalle at a time. During flips it temporarily uses
+`{cutEdges:0, popDev:1}` so cut-edge minimization can't block tiny popDev gains.
+A ReCom step is mixed in every 4 iterations to escape local minima.
 
 ## Performance
 
-- Marmara (k=191, 2000 iters): ~500ms
-- Karadeniz (N=11K mahalle, k=60, 2000 iters): ~600ms
-- All 7 regions in parallel: ~600ms wall time
+- All 7 regions in parallel: ~600ms wall time (Marmara is k=191, Karadeniz N=11K)
+- Polish: ~0.2ms/iter (3 flips + 1 ReCom = ~4 sub-ops per iter)
 
 Optimizations:
 - One Web Worker per region (parallel run)
@@ -35,6 +42,7 @@ Optimizations:
   so each ReCom step is O(merged size) instead of O(V+E)
 - Pre-allocated reused typed-array buffers in the hot loop (no GC pressure)
 - ArrayBuffer transfer + diff-only ticks for the main thread
+- Worker keeps the optimized state across runs so Polish continues from there
 
 ## Data sources
 
@@ -44,5 +52,5 @@ Optimizations:
 
 ## Files
 
-- `index.html` — the app (vanilla JS, single file, ~1900 lines)
+- `index.html` — the app (vanilla JS, single file)
 - `regions/tr_*.topo.json` — 7 compact regional TopoJSONs (3-7MB each)
