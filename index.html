@@ -299,7 +299,10 @@
         <button class="cmd go" id="btn-runall" disabled style="margin-bottom:8px">Run all 7</button>
         <button class="cmd" id="btn-polish" disabled style="margin-bottom:8px" title="Single-mahalle flip moves to push popDev below ReCom's tolerance floor. Run after a normal run is done.">Polish (drop popDev)</button>
         <button class="cmd" id="btn-reset" disabled style="margin-bottom:8px">Reset region</button>
-        <button class="cmd" id="btn-export" disabled>Export GeoJSON</button>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+          <button class="cmd" id="btn-export" disabled>Export GeoJSON</button>
+          <button class="cmd" id="btn-export-png" disabled>Export PNG</button>
+        </div>
       </div>
     </div>
 
@@ -1602,6 +1605,7 @@ $('btn-reset').onclick   = resetRegion;
 $('btn-runall').onclick  = startRunAll;
 $('btn-polish').onclick  = startPolish;
 $('btn-export').onclick  = exportGeoJSON;
+$('btn-export-png').onclick = exportMapPNG;
 
 function status(l, r, isErr) {
   $('status-l').textContent = l;
@@ -1623,6 +1627,7 @@ function updateButtons() {
   // Polish needs an existing optimized state to refine
   $('btn-polish').disabled = isNat || !r || r.status !== 'done' || activeRunning;
   $('btn-export').disabled = isNat ? !nationalHasAnyAssignment() : !r?.assignment;
+  $('btn-export-png').disabled = isNat ? !nationalHasAnyAssignment() : !r?.assignment;
   if (isNat) $('btn-start').textContent = 'Pick region';
   else $('btn-start').textContent = `Run ${REGIONS.find(m => m.key === state.active)?.label || ''}`;
 }
@@ -2105,18 +2110,50 @@ function aggregatedMetrics() {
   let popDev = 0, cutEdges = 0, ilSplitsTotal = 0;
   let muhSeats = 0, iktSeats = 0;
   let any = false;
+  // Aggregate effGap and meanMed across ALL districts in ALL regions.
+  // effGap: sum (wasted_dem - wasted_rep) across districts / sum(total_votes)
+  // meanMed: mean(shares) - median(shares) over all national districts
+  let totWd = 0, totWr = 0, totVotes = 0;
+  const allShares = [];
   for (const meta of REGIONS) {
     const r = state.regions[meta.key];
-    if (!r?.metrics) continue;
+    if (!r?.metrics || !r.assignment || !r.k) continue;
     any = true;
     if (r.metrics.popDev > popDev) popDev = r.metrics.popDev;
     cutEdges += r.metrics.cutEdges;
     ilSplitsTotal += r.metrics.ilSplits;
     muhSeats += r.metrics.muhSeats;
     iktSeats += r.metrics.iktSeats;
+    // Per-district vote totals for this region
+    const k = r.k;
+    const m = new Float64Array(k), kk = new Float64Array(k);
+    for (let i = 0; i < r.N; i++) {
+      const d = r.assignment[i];
+      m[d] += r.muh[i]; kk[d] += r.ikt[i];
+    }
+    for (let d = 0; d < k; d++) {
+      const t = m[d] + kk[d];
+      if (t === 0) { allShares.push(0.5); continue; }
+      const sh = m[d] / t;
+      allShares.push(sh);
+      if (sh > 0.5) { totWd += (sh - 0.5) * t; totWr += (1 - sh) * t; }
+      else          { totWd += sh * t;          totWr += (0.5 - sh) * t; }
+      totVotes += t;
+    }
   }
   if (!any) return null;
-  return { popDev, cutEdges, effGap: null, meanMed: null, muhSeats, iktSeats, ilSplits: ilSplitsTotal };
+  let effGap = null, meanMed = null;
+  if (totVotes > 0) effGap = (totWd - totWr) / totVotes;
+  if (allShares.length > 0) {
+    const sorted = allShares.slice().sort((a, b) => a - b);
+    const n = sorted.length;
+    const median = n % 2 ? sorted[(n - 1) >> 1] : 0.5 * (sorted[n / 2 - 1] + sorted[n / 2]);
+    let mean = 0;
+    for (const s of sorted) mean += s;
+    mean /= n;
+    meanMed = mean - median;
+  }
+  return { popDev, cutEdges, effGap, meanMed, muhSeats, iktSeats, ilSplits: ilSplitsTotal };
 }
 
 function drawScoreChart() {
@@ -2205,6 +2242,69 @@ function exportGeoJSON() {
   a.href = URL.createObjectURL(blob);
   a.download = `tr_${state.active}_${r.k}d.geojson`;
   a.click();
+}
+
+// High-resolution PNG export: clone the live SVG, add a background rect, set
+// explicit width/height, serialize, render at 4× pixel ratio to a canvas.
+// Captures whatever is currently on the map (all regions, active coloring).
+function exportMapPNG() {
+  const SCALE = 4;
+  const live = $('map');
+  const w = live.clientWidth, h = live.clientHeight;
+  if (!w || !h) return;
+
+  // Deep-clone the SVG so we can add a background and standalone-namespace
+  // attributes without touching the live document.
+  const clone = live.cloneNode(true);
+  clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+  clone.setAttribute('xmlns:xlink', 'http://www.w3.org/1999/xlink');
+  clone.setAttribute('width', w);
+  clone.setAttribute('height', h);
+  clone.setAttribute('viewBox', `0 0 ${w} ${h}`);
+
+  // Insert a bg rect so the PNG isn't transparent.
+  const bg = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+  bg.setAttribute('x', '0'); bg.setAttribute('y', '0');
+  bg.setAttribute('width', String(w)); bg.setAttribute('height', String(h));
+  bg.setAttribute('fill', getCSSVar('--bg') || '#ffffff');
+  clone.insertBefore(bg, clone.firstChild);
+
+  const xml = new XMLSerializer().serializeToString(clone);
+  const svgBlob = new Blob(['<?xml version="1.0" encoding="UTF-8"?>\n', xml], { type: 'image/svg+xml;charset=utf-8' });
+  const url = URL.createObjectURL(svgBlob);
+
+  const img = new Image();
+  img.onload = () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = w * SCALE; canvas.height = h * SCALE;
+    const ctx = canvas.getContext('2d');
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(img, 0, 0, w * SCALE, h * SCALE);
+    URL.revokeObjectURL(url);
+    canvas.toBlob((blob) => {
+      if (!blob) { status('PNG export failed', '', true); return; }
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      // Filename: tr_<region or national>_<total seats>d_<scale>x.png
+      let totalSeats;
+      if (state.active === 'national') {
+        totalSeats = REGIONS.reduce((s, m) => s + (state.regions[m.key]?.k || 0), 0);
+        a.download = `tr_national_${totalSeats}d_${SCALE}x.png`;
+      } else {
+        const r = state.regions[state.active];
+        a.download = `tr_${state.active}_${r?.k || 0}d_${SCALE}x.png`;
+      }
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+      status(`Exported ${canvas.width}×${canvas.height} PNG`, '');
+    }, 'image/png');
+  };
+  img.onerror = () => {
+    URL.revokeObjectURL(url);
+    status('PNG export failed (SVG load error)', '', true);
+  };
+  img.src = url;
 }
 
 status('Booting…', '');
