@@ -2091,21 +2091,39 @@ function recolorPaths(key, diff) {
   redrawDistrictBorders(key, true);
 }
 
-// Redraw the inter-district border path. We merge each district's mahalles
-// into a single MultiPolygon first via topojson.mergeArcs (which removes
-// arcs interior to a district), then mesh those merged geometries.
+// Redraw the inter-district border path. Approach:
+//   1. Group mahalles by district, merge each into one MultiPolygon via
+//      topojson.mergeArcs (drops arcs interior to a district).
+//   2. Convert merged topology to GeoJSON.
+//   3. For each district feature, filter out polygon pieces and holes whose
+//      projected (pixel-space) area is below MIN_PIECE_AREA. This kills
+//      single-mahalle "enclave dots" — districts can become geographically
+//      disconnected because ReCom's adjacency graph is bridged across islands
+//      and exclaves, so an algorithmically-connected district can have a
+//      stranded mahalle visually appearing as a black dot inside another
+//      district. Threshold ~25 px² ≈ 5×5 px, well below any real district.
+//   4. d3.geoPath each filtered feature, concatenate path strings.
 //
-// Why not mesh on the raw mahalle geometries: topojson.mesh's filter only
-// receives the FIRST and LAST geometry that share an arc. At T-junctions
-// where 3+ mahalles meet, micro-arcs are shared by 3+ geometries — the
-// middle ones get silently dropped, so an arc that separates districts
-// A↔B↔C only sees (A, C) in the filter and gets excluded if A==C.
-// After mergeArcs every arc is shared by at most 2 districts (or 1 for
-// outer boundary) and the filter sees exactly the right pair.
-//
-// At ~100ms on the bigger regions, this is too expensive to run on every
+// At ~300ms on the bigger regions, this is too expensive to run on every
 // tick (cadence ~200ms). The `live` flag throttles tick-driven calls to
 // once every 500ms; full repaints (partition/done) always go through.
+const MIN_PIECE_AREA_PX = 25;
+
+function ringAreaPx(ring, project) {
+  // Shoelace area in projected (pixel) coordinates.
+  if (!ring || ring.length < 3) return 0;
+  let a = 0;
+  let p0 = project(ring[0]);
+  if (!p0) return 0;
+  for (let i = 1; i < ring.length; i++) {
+    const p1 = project(ring[i]);
+    if (!p1) continue;
+    a += p0[0] * p1[1] - p1[0] * p0[1];
+    p0 = p1;
+  }
+  return Math.abs(a) / 2;
+}
+
 function redrawDistrictBorders(key, live) {
   const r = state.regions[key];
   if (!r || !r.borderEl) return;
@@ -2134,7 +2152,8 @@ function redrawDistrictBorders(key, live) {
     g.push(geoms[i]);
   }
 
-  // Merge each district into one MultiPolygon (interior arcs dropped)
+  // Merge each district's mahalles into a single MultiPolygon (interior
+  // arcs dropped).
   const mergedGeoms = [];
   for (const [d, gs] of groups) {
     const m = topojson.mergeArcs(r.topo, gs);
@@ -2148,35 +2167,39 @@ function redrawDistrictBorders(key, live) {
     objects: { districts: { type: 'GeometryCollection', geometries: mergedGeoms } },
   };
 
-  // Mesh all boundary arcs: between districts AND on the region's outer edge.
-  const mesh = topojson.mesh(mergedTopo, mergedTopo.objects.districts, (g1, g2) => true);
-
-  // Filter near-zero-length arcs in projected coordinates. mergeArcs can leave
-  // degenerate sub-arcs at T-junctions where multiple districts meet at one
-  // vertex; without this filter they render as visible "dots" inside districts.
-  // Threshold of 0.5 px squared (so any arc shorter than ~0.7 px gets dropped).
-  const proj = state.proj;
-  const filtered = [];
-  for (const line of mesh.coordinates) {
-    if (!line || line.length < 2) continue;
-    let dist2 = 0;
-    let prev = proj(line[0]);
-    if (!prev) continue;
-    for (let i = 1; i < line.length; i++) {
-      const cur = proj(line[i]);
-      if (!cur) continue;
-      const dx = cur[0] - prev[0], dy = cur[1] - prev[1];
-      dist2 += dx * dx + dy * dy;
-      prev = cur;
-    }
-    if (dist2 >= 0.25) filtered.push(line);   // ≥ 0.5 px combined length
-  }
-
+  // Convert to GeoJSON, filter tiny polygon pieces and tiny holes by pixel
+  // area, render each filtered feature.
+  const fc = topojson.feature(mergedTopo, mergedTopo.objects.districts);
   const path = d3.geoPath(state.proj);
-  r.borderEl.setAttribute('d', path({ type: 'MultiLineString', coordinates: filtered }) || '');
-  // Re-append so this region's border path stays on top of every other region's
-  // mahalle fills. Without this, regions processed AFTER this one paint over
-  // its borders.
+  const proj = state.proj;
+  let dStr = '';
+  for (const feat of fc.features) {
+    const g = feat.geometry;
+    let polys;
+    if (g.type === 'Polygon') polys = [g.coordinates];
+    else if (g.type === 'MultiPolygon') polys = g.coordinates;
+    else continue;
+
+    const kept = [];
+    for (const rings of polys) {
+      // Outer ring area
+      if (ringAreaPx(rings[0], proj) < MIN_PIECE_AREA_PX) continue;
+      // Drop tiny holes too (they'd render as inner-ring dots)
+      const filteredRings = [rings[0]];
+      for (let i = 1; i < rings.length; i++) {
+        if (ringAreaPx(rings[i], proj) >= MIN_PIECE_AREA_PX) filteredRings.push(rings[i]);
+      }
+      kept.push(filteredRings);
+    }
+    if (kept.length === 0) continue;
+    const subFeat = {
+      type: 'Feature',
+      geometry: { type: 'MultiPolygon', coordinates: kept },
+    };
+    const ds = path(subFeat);
+    if (ds) dStr += ds;
+  }
+  r.borderEl.setAttribute('d', dStr);
   r.borderEl.parentNode.appendChild(r.borderEl);
 }
 function recolorAll() {
