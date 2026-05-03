@@ -2091,6 +2091,11 @@ function redrawDistrictBorders(key, live) {
   );
   const path = d3.geoPath(state.proj);
   r.borderEl.setAttribute('d', path(mesh) || '');
+  // Re-append so this region's border path stays on top of every other region's
+  // mahalle fills. Without this, regions processed AFTER this one paint over
+  // its borders (processRegion appends fills then border, but the next region's
+  // fills then layer on top of the previous region's borders).
+  r.borderEl.parentNode.appendChild(r.borderEl);
 }
 function recolorAll() {
   for (const meta of REGIONS) recolorRegion(meta.key);
