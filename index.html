@@ -1692,6 +1692,11 @@ function processRegion(meta, tj) {
     il[i] = p.IL || 0; totalPop += pop[i];
   }
 
+  // Tag each topojson geometry with its index. topojson.mesh's filter
+  // function receives geometry objects, so we need a way to look up the
+  // mahalle index → district assignment from inside the filter.
+  tj.objects.mahalle.geometries.forEach((g, i) => { g.idx = i; });
+
   const path = d3.geoPath(state.proj);
   const svgEl = d3.select('#map').node();
   const els = new Array(N);
@@ -1702,9 +1707,11 @@ function processRegion(meta, tj) {
     const el = document.createElementNS('http://www.w3.org/2000/svg', 'path');
     el.setAttribute('d', d);
     el.setAttribute('fill', cardBg);
+    // Mahalle borders muted to a faint texture — district borders are drawn
+    // separately on top, and competing strokes here would obscure them.
     el.setAttribute('stroke', ink);
-    el.setAttribute('stroke-width', '0.4');
-    el.setAttribute('stroke-opacity', '0.35');
+    el.setAttribute('stroke-width', '0.25');
+    el.setAttribute('stroke-opacity', '0.10');
     el.dataset.region = meta.key; el.dataset.idx = i;
     el.style.cursor = 'pointer';
     el.addEventListener('click', () => selectRegion(meta.key));
@@ -1712,6 +1719,17 @@ function processRegion(meta, tj) {
     els[i] = el;
   }
   state.pathEls[meta.key] = els;
+
+  // District-border path: appended after all mahalle paths so it draws on top.
+  // d is set later via redrawDistrictBorders() once an assignment exists.
+  const borderEl = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+  borderEl.setAttribute('fill', 'none');
+  borderEl.setAttribute('stroke', ink);
+  borderEl.setAttribute('stroke-width', '1.1');
+  borderEl.setAttribute('stroke-linejoin', 'round');
+  borderEl.setAttribute('stroke-linecap', 'round');
+  borderEl.setAttribute('pointer-events', 'none');
+  svgEl.appendChild(borderEl);
 
   const adj = buildAdjacency(tj);
   bridgeIslands(adj, fc.features, N);
@@ -1729,6 +1747,7 @@ function processRegion(meta, tj) {
     topo: tj, features: fc.features, pop, ikt, muh, il, N, totalPop, adj,
     status: 'idle', assignment: null, bestScore: Infinity, scoreHist: [],
     iter: 0, k: 0, metrics: null, label: meta.label,
+    borderEl,
   };
 }
 
@@ -1966,6 +1985,7 @@ function resetRegion() {
   r.assignment = null; r.scoreHist = []; r.iter = 0; r.metrics = null; r.status = 'idle';
   state.scoreHist = [];
   for (const el of state.pathEls[state.active] || []) el.setAttribute('fill', getCSSVar('--card-bg'));
+  if (r.borderEl) r.borderEl.setAttribute('d', '');
   renderRegionList(); drawScoreChart(); updateMetricsPanel(); updateButtons();
   status(`${r.label}: reset`, '');
 }
@@ -1988,6 +2008,7 @@ function recolorRegion(key) {
   const cardBg = getCSSVar('--card-bg');
   if (!r.assignment) {
     for (const el of els) el.setAttribute('fill', cardBg);
+    redrawDistrictBorders(key);
     return;
   }
   if (state.colorMode === 'districts') {
@@ -2004,6 +2025,7 @@ function recolorRegion(key) {
     r._partisan = partisan;
     for (let i = 0; i < r.N; i++) els[i].setAttribute('fill', partisanColor(partisan[r.assignment[i]]));
   }
+  redrawDistrictBorders(key);
 }
 
 // Fast diff-recolor: only updates the SVG paths for nodes whose district
@@ -2021,16 +2043,10 @@ function recolorPaths(key, diff) {
       els[n].setAttribute('fill', pal[d]);
     }
   } else {
-    // Partisan colors depend on per-district shares which change every tick.
-    // For the changed nodes' districts we recompute share from the now-updated
-    // assignment + muh/ikt sums. This is bounded by the changed districts (≤ 2),
-    // and we recolor every node in those districts.
     const k = r.k;
     if (!r._partisan) r._partisan = new Array(k).fill(0.5);
-    // Find unique districts touched
     const seenD = new Set();
     for (let i = 1; i < diff.length; i += 2) seenD.add(diff[i]);
-    // Recompute their shares and recolor every node currently in them
     for (const d of seenD) {
       let mSum = 0, kSum = 0;
       for (let i = 0; i < r.N; i++) {
@@ -2039,14 +2055,42 @@ function recolorPaths(key, diff) {
       const t = mSum + kSum;
       r._partisan[d] = t > 0 ? mSum / t : 0.5;
     }
-    // Recolor changed nodes (their share changed) AND nodes still in
-    // recomputed districts that were ALREADY in (since their share also moved)
-    // Optimization: just recolor changed nodes — close enough for live UI.
     for (let i = 0; i < diff.length; i += 2) {
       const n = diff[i], d = diff[i + 1];
       els[n].setAttribute('fill', partisanColor(r._partisan[d]));
     }
   }
+  redrawDistrictBorders(key, true);
+}
+
+// Redraw the inter-district border path. Uses topojson.mesh with a filter
+// that emits only arcs separating mahalles in different districts —
+// dedupping shared arcs into a single MultiLineString. One SVG path, drawn
+// on top of all mahalle fills.
+//
+// At ~100ms per call on the bigger regions, this is too expensive to run on
+// every tick (tick cadence is ~200ms). The `live` flag throttles tick-driven
+// calls to once every 500ms; full repaints (partition/done) always go through.
+function redrawDistrictBorders(key, live) {
+  const r = state.regions[key];
+  if (!r || !r.borderEl) return;
+  if (!r.topo || !r.assignment) {
+    r.borderEl.setAttribute('d', '');
+    return;
+  }
+  if (live) {
+    const now = Date.now();
+    if (r._lastBorderDraw && now - r._lastBorderDraw < 500) return;
+    r._lastBorderDraw = now;
+  } else {
+    r._lastBorderDraw = Date.now();
+  }
+  const a = r.assignment;
+  const mesh = topojson.mesh(r.topo, r.topo.objects.mahalle, (g1, g2) =>
+    a[g1.idx] !== a[g2.idx]
+  );
+  const path = d3.geoPath(state.proj);
+  r.borderEl.setAttribute('d', path(mesh) || '');
 }
 function recolorAll() {
   for (const meta of REGIONS) recolorRegion(meta.key);
