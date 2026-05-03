@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>TR/26 — ReCom</title>
+<title>TR/26 — ReCom v4</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
 <script src="https://cdn.jsdelivr.net/npm/topojson-client@3"></script>
@@ -2143,6 +2143,13 @@ function redrawDistrictBorders(key, live) {
     r._lastBorderDraw = now;
   } else {
     r._lastBorderDraw = Date.now();
+  }
+  // Diagnostic: log build version once per region per session. Lets the user
+  // confirm fresh code is loaded. Open browser console (F12) — should see
+  // "[borders v4] drawing region <key> with per-component split".
+  if (!r._versionLogged) {
+    console.log(`[borders v4] drawing region ${key} with per-component split (adjGeo: ${!!r.adjGeo})`);
+    r._versionLogged = true;
   }
   const a = r.assignment;
   const geoms = r.topo.objects.mahalle.geometries;
