@@ -1757,7 +1757,13 @@ function processRegion(meta, tj) {
   borderEl.setAttribute('pointer-events', 'none');
   svgEl.appendChild(borderEl);
 
+  // Build geographic adjacency, then add bridge edges between disconnected
+  // components for the algorithm. The unbridged version is preserved as
+  // `adjGeo` for rendering — the border drawer must NOT see bridges, or
+  // mergeArcs walks across them and produces straight-line strokes that
+  // span unrelated parts of the map.
   const adj = buildAdjacency(tj);
+  const adjGeo = adj.map(s => new Set(s));
   bridgeIslands(adj, fc.features, N);
 
   state.workers[meta.key].postMessage({
@@ -1770,7 +1776,7 @@ function processRegion(meta, tj) {
   });
 
   state.regions[meta.key] = {
-    topo: tj, features: fc.features, pop, ikt, muh, il, N, totalPop, adj,
+    topo: tj, features: fc.features, pop, ikt, muh, il, N, totalPop, adj, adjGeo,
     status: 'idle', assignment: null, bestScore: Infinity, scoreHist: [],
     iter: 0, k: 0, metrics: null, label: meta.label,
     borderEl,
@@ -2142,23 +2148,47 @@ function redrawDistrictBorders(key, live) {
   const geoms = r.topo.objects.mahalle.geometries;
   const k = r.k;
 
-  // Group geometries by district
+  // Group mahalles by district. Then for each district, split into
+  // geographically-connected components using the UNBRIDGED adjacency.
+  // We merge each component separately so mergeArcs never walks across a
+  // bridge edge — that's what produces the long straight-line strokes
+  // that the user sees crossing unrelated districts.
   const groups = new Map();
   for (let i = 0; i < geoms.length; i++) {
     const d = a[i];
     if (d < 0 || d >= k) continue;
     let g = groups.get(d);
     if (!g) { g = []; groups.set(d, g); }
-    g.push(geoms[i]);
+    g.push(i);
   }
 
-  // Merge each district's mahalles into a single MultiPolygon (interior
-  // arcs dropped).
+  const adjGeo = r.adjGeo;
   const mergedGeoms = [];
-  for (const [d, gs] of groups) {
-    const m = topojson.mergeArcs(r.topo, gs);
-    m.id = d;
-    mergedGeoms.push(m);
+  const inDist = new Uint8Array(geoms.length);
+  const visited = new Uint8Array(geoms.length);
+  for (const [d, indices] of groups) {
+    // Mark district membership for fast component traversal
+    for (const i of indices) inDist[i] = 1;
+    // BFS each component
+    for (const start of indices) {
+      if (visited[start]) continue;
+      const comp = [];
+      const queue = [start];
+      visited[start] = 1;
+      while (queue.length) {
+        const u = queue.pop();
+        comp.push(geoms[u]);
+        if (adjGeo) {
+          for (const v of adjGeo[u]) {
+            if (!visited[v] && inDist[v]) { visited[v] = 1; queue.push(v); }
+          }
+        }
+      }
+      const merged = topojson.mergeArcs(r.topo, comp);
+      merged.id = d;
+      mergedGeoms.push(merged);
+    }
+    for (const i of indices) inDist[i] = 0;
   }
   const mergedTopo = {
     type: 'Topology',
@@ -2168,7 +2198,7 @@ function redrawDistrictBorders(key, live) {
   };
 
   // Convert to GeoJSON, filter tiny polygon pieces and tiny holes by pixel
-  // area, render each filtered feature.
+  // area, render each kept ring as a LineString.
   const fc = topojson.feature(mergedTopo, mergedTopo.objects.districts);
   const path = d3.geoPath(state.proj);
   const proj = state.proj;
@@ -2179,25 +2209,17 @@ function redrawDistrictBorders(key, live) {
     if (g.type === 'Polygon') polys = [g.coordinates];
     else if (g.type === 'MultiPolygon') polys = g.coordinates;
     else continue;
-
-    const kept = [];
     for (const rings of polys) {
-      // Outer ring area
+      // Outer ring area threshold
       if (ringAreaPx(rings[0], proj) < MIN_PIECE_AREA_PX) continue;
-      // Drop tiny holes too (they'd render as inner-ring dots)
-      const filteredRings = [rings[0]];
+      const ds0 = path({ type: 'LineString', coordinates: rings[0] });
+      if (ds0) dStr += ds0;
       for (let i = 1; i < rings.length; i++) {
-        if (ringAreaPx(rings[i], proj) >= MIN_PIECE_AREA_PX) filteredRings.push(rings[i]);
+        if (ringAreaPx(rings[i], proj) < MIN_PIECE_AREA_PX) continue;
+        const dsi = path({ type: 'LineString', coordinates: rings[i] });
+        if (dsi) dStr += dsi;
       }
-      kept.push(filteredRings);
     }
-    if (kept.length === 0) continue;
-    const subFeat = {
-      type: 'Feature',
-      geometry: { type: 'MultiPolygon', coordinates: kept },
-    };
-    const ds = path(subFeat);
-    if (ds) dStr += ds;
   }
   r.borderEl.setAttribute('d', dStr);
   r.borderEl.parentNode.appendChild(r.borderEl);
