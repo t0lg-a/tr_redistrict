@@ -175,6 +175,24 @@
   .progress-bar > div { position: absolute; inset: 0; background: var(--brand); width: 0%; transition: width 0.2s; }
   .progress-pct { font: 700 11px ui-monospace, monospace; color: var(--dim); margin-top: 6px; }
 
+  /* Hover tooltip — riso card pinned to cursor. pointer-events:none so it
+     never steals mouseleave from the path under it. */
+  .map-tooltip {
+    position: absolute; z-index: 20; pointer-events: none;
+    background: var(--card-bg); border: 1px solid var(--ink);
+    box-shadow: 4px 4px 0 0 var(--ink); padding: 8px 10px;
+    min-width: 180px; max-width: 280px;
+    font: 600 11px ui-monospace, monospace; color: var(--ink);
+    line-height: 1.5;
+  }
+  .map-tooltip .tt-hdr { font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; font-size: 10px; color: var(--muted); margin-bottom: 4px; }
+  .map-tooltip .tt-row { display: flex; justify-content: space-between; gap: 12px; }
+  .map-tooltip .tt-row .v { font-variant-numeric: tabular-nums; }
+  .map-tooltip .tt-pos { color: #7f1d1d; }
+  .map-tooltip .tt-neg { color: #a16207; }
+  .map-tooltip .tt-tossup { color: #4b5563; }
+  .map-tooltip hr { border: 0; border-top: 1px solid var(--rule); margin: 6px 0; }
+
   .metrics { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin-top: 14px; }
   .metric {
     background: var(--card-bg); border: 1px solid var(--ink);
@@ -313,6 +331,7 @@
           <span style="font-weight:800;letter-spacing:0.04em">Loading regions…</span>
         </div>
         <div class="map-overlay-tr" id="map-tip">click region · then Run</div>
+        <div class="map-tooltip" id="tooltip" style="display:none"></div>
         <div class="progress-overlay" id="progress" style="display:flex">
           <div class="progress-card">
             <div class="ttl" id="progress-ttl">Loading regional data</div>
@@ -1715,6 +1734,9 @@ function processRegion(meta, tj) {
     el.dataset.region = meta.key; el.dataset.idx = i;
     el.style.cursor = 'pointer';
     el.addEventListener('click', () => selectRegion(meta.key));
+    el.addEventListener('mouseenter', onMahalleHover);
+    el.addEventListener('mouseleave', onMahalleLeave);
+    el.addEventListener('mousemove', onMahalleMove);
     svgEl.appendChild(el);
     els[i] = el;
   }
@@ -1843,6 +1865,7 @@ function onWorkerMsg(e) {
   if (m.type === 'partition' || m.type === 'done') {
     // Full assignment arrived as transferable ArrayBuffer
     if (m.assignment) r.assignment = new Int32Array(m.assignment);
+    if (m.assignment) invalidateDistrictStats(r);
     if (m.metrics) r.metrics = m.metrics;
     if (m.iter !== undefined) r.iter = m.iter;
     if (m.score !== undefined) r.bestScore = m.score;
@@ -1879,6 +1902,7 @@ function onWorkerMsg(e) {
       }
       // Recolor only the changed paths — fast path
       recolorPaths(m.key, diff);
+      invalidateDistrictStats(r);
     }
     if (m.metrics) r.metrics = m.metrics;
     if (m.iter !== undefined) r.iter = m.iter;
@@ -2063,14 +2087,21 @@ function recolorPaths(key, diff) {
   redrawDistrictBorders(key, true);
 }
 
-// Redraw the inter-district border path. Uses topojson.mesh with a filter
-// that emits only arcs separating mahalles in different districts —
-// dedupping shared arcs into a single MultiLineString. One SVG path, drawn
-// on top of all mahalle fills.
+// Redraw the inter-district border path. We merge each district's mahalles
+// into a single MultiPolygon first via topojson.mergeArcs (which removes
+// arcs interior to a district), then mesh those merged geometries.
 //
-// At ~100ms per call on the bigger regions, this is too expensive to run on
-// every tick (tick cadence is ~200ms). The `live` flag throttles tick-driven
-// calls to once every 500ms; full repaints (partition/done) always go through.
+// Why not mesh on the raw mahalle geometries: topojson.mesh's filter only
+// receives the FIRST and LAST geometry that share an arc. At T-junctions
+// where 3+ mahalles meet, micro-arcs are shared by 3+ geometries — the
+// middle ones get silently dropped, so an arc that separates districts
+// A↔B↔C only sees (A, C) in the filter and gets excluded if A==C.
+// After mergeArcs every arc is shared by at most 2 districts (or 1 for
+// outer boundary) and the filter sees exactly the right pair.
+//
+// At ~100ms on the bigger regions, this is too expensive to run on every
+// tick (cadence ~200ms). The `live` flag throttles tick-driven calls to
+// once every 500ms; full repaints (partition/done) always go through.
 function redrawDistrictBorders(key, live) {
   const r = state.regions[key];
   if (!r || !r.borderEl) return;
@@ -2086,19 +2117,142 @@ function redrawDistrictBorders(key, live) {
     r._lastBorderDraw = Date.now();
   }
   const a = r.assignment;
-  const mesh = topojson.mesh(r.topo, r.topo.objects.mahalle, (g1, g2) =>
-    a[g1.idx] !== a[g2.idx]
-  );
+  const geoms = r.topo.objects.mahalle.geometries;
+  const k = r.k;
+
+  // Group geometries by district
+  const groups = new Map();
+  for (let i = 0; i < geoms.length; i++) {
+    const d = a[i];
+    if (d < 0 || d >= k) continue;
+    let g = groups.get(d);
+    if (!g) { g = []; groups.set(d, g); }
+    g.push(geoms[i]);
+  }
+
+  // Merge each district into one MultiPolygon (interior arcs dropped)
+  const mergedGeoms = [];
+  for (const [d, gs] of groups) {
+    const m = topojson.mergeArcs(r.topo, gs);
+    m.id = d;
+    mergedGeoms.push(m);
+  }
+  const mergedTopo = {
+    type: 'Topology',
+    arcs: r.topo.arcs,
+    transform: r.topo.transform,
+    objects: { districts: { type: 'GeometryCollection', geometries: mergedGeoms } },
+  };
+
+  // Mesh all boundary arcs: between districts AND on the region's outer edge.
+  const mesh = topojson.mesh(mergedTopo, mergedTopo.objects.districts, (g1, g2) => true);
   const path = d3.geoPath(state.proj);
   r.borderEl.setAttribute('d', path(mesh) || '');
   // Re-append so this region's border path stays on top of every other region's
   // mahalle fills. Without this, regions processed AFTER this one paint over
-  // its borders (processRegion appends fills then border, but the next region's
-  // fills then layer on top of the previous region's borders).
+  // its borders.
   r.borderEl.parentNode.appendChild(r.borderEl);
 }
 function recolorAll() {
   for (const meta of REGIONS) recolorRegion(meta.key);
+}
+
+// ── Hover tooltip ────────────────────────────────────────────────────
+// Per-district stats (population, votes, share, winner) are cached lazily on
+// first hover and invalidated whenever an assignment changes (via tick or
+// full recolor). This keeps mousemove cheap even with 600+ districts.
+function ensureDistrictStats(r) {
+  if (r._statsValid) return r._stats;
+  const k = r.k;
+  if (!k || !r.assignment) { r._stats = null; return null; }
+  const ideal = r.totalPop / k;
+  const stats = new Array(k);
+  for (let d = 0; d < k; d++) stats[d] = { pop: 0, muh: 0, ikt: 0, n: 0 };
+  for (let i = 0; i < r.N; i++) {
+    const d = r.assignment[i];
+    const s = stats[d];
+    s.pop += r.pop[i]; s.muh += r.muh[i]; s.ikt += r.ikt[i]; s.n++;
+  }
+  for (let d = 0; d < k; d++) {
+    const s = stats[d];
+    const t = s.muh + s.ikt;
+    s.share = t > 0 ? s.muh / t : 0.5;
+    s.popDev = (s.pop - ideal) / ideal;
+    s.margin = Math.abs(s.muh - s.ikt) / Math.max(1, t);
+    s.winner = s.muh > s.ikt ? 'Muhalefet' : (s.ikt > s.muh ? 'Iktidar' : 'Tie');
+  }
+  r._stats = stats;
+  r._statsValid = true;
+  return stats;
+}
+function invalidateDistrictStats(r) {
+  if (r) r._statsValid = false;
+}
+
+const _fmtNum = (n) => n.toLocaleString('tr-TR');
+const _fmtPct = (x, d = 1) => (x >= 0 ? '+' : '') + (x * 100).toFixed(d) + '%';
+
+function buildTooltipHTML(regionLabel, d, stats, mahalle_n, il_code) {
+  const s = stats[d];
+  if (!s) return '';
+  // Tossup band uses neutral gray; stronger margins use saturated red/amber
+  let winnerCls = 'tt-tossup';
+  if (Math.abs(s.share - 0.5) >= 0.03) {
+    winnerCls = s.winner === 'Muhalefet' ? 'tt-pos' : 'tt-neg';
+  }
+  const winnerLabel = (winnerCls === 'tt-tossup') ? 'Tossup' : s.winner;
+  const muhPct = (s.muh / Math.max(1, s.muh + s.ikt) * 100).toFixed(1);
+  const iktPct = (s.ikt / Math.max(1, s.muh + s.ikt) * 100).toFixed(1);
+  return `
+    <div class="tt-hdr">${regionLabel} · District ${d + 1}</div>
+    <div class="tt-row"><span>Population</span><span class="v">${_fmtNum(Math.round(s.pop))}</span></div>
+    <div class="tt-row"><span>Pop dev</span><span class="v">${_fmtPct(s.popDev, 2)}</span></div>
+    <div class="tt-row"><span>Mahalleler</span><span class="v">${_fmtNum(s.n)}</span></div>
+    <hr/>
+    <div class="tt-row"><span>Muhalefet</span><span class="v tt-pos">${muhPct}%</span></div>
+    <div class="tt-row"><span>Iktidar</span><span class="v tt-neg">${iktPct}%</span></div>
+    <div class="tt-row"><span>Margin</span><span class="v ${winnerCls}">${(s.margin * 100).toFixed(1)} pts ${winnerLabel}</span></div>
+    <hr/>
+    <div class="tt-hdr" style="margin-bottom:0">Mahalle #${mahalle_n} · İl ${il_code}</div>
+  `;
+}
+
+let _hoveredKey = null, _hoveredIdx = -1;
+function onMahalleHover(e) {
+  const region = e.currentTarget.dataset.region;
+  const idx = +e.currentTarget.dataset.idx;
+  const r = state.regions[region];
+  if (!r || !r.assignment) return;
+  const stats = ensureDistrictStats(r);
+  if (!stats) return;
+  const d = r.assignment[idx];
+  const tip = $('tooltip');
+  tip.innerHTML = buildTooltipHTML(r.label, d, stats, idx, r.il[idx]);
+  tip.style.display = 'block';
+  positionTooltip(e);
+  _hoveredKey = region; _hoveredIdx = idx;
+}
+function onMahalleMove(e) {
+  if (_hoveredKey) positionTooltip(e);
+}
+function onMahalleLeave() {
+  $('tooltip').style.display = 'none';
+  _hoveredKey = null; _hoveredIdx = -1;
+}
+function positionTooltip(e) {
+  const tip = $('tooltip');
+  const wrap = tip.parentElement.getBoundingClientRect();
+  const tw = tip.offsetWidth, th = tip.offsetHeight;
+  // Cursor coords relative to the map-wrap container
+  let x = e.clientX - wrap.left + 12;
+  let y = e.clientY - wrap.top + 12;
+  // Pin to the right/bottom edges of the wrap so the tooltip stays visible
+  if (x + tw > wrap.width - 8)  x = e.clientX - wrap.left - tw - 12;
+  if (y + th > wrap.height - 8) y = e.clientY - wrap.top - th - 12;
+  if (x < 8) x = 8;
+  if (y < 8) y = 8;
+  tip.style.left = x + 'px';
+  tip.style.top  = y + 'px';
 }
 // Continuous partisan color scale, LAB-interpolated through 7 anchor colors.
 // LAB interpolation between green and red passes through desaturated grays
