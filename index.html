@@ -3,231 +3,360 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>TR/26 — ReCom v4</title>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+<title>Türkiye 2023 ReCom — Almanac</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Eczar:wght@400;500;600;700;800&family=Source+Serif+4:ital,wght@0,400;0,500;0,600;0,700;1,400&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
 <script src="https://cdn.jsdelivr.net/npm/topojson-client@3"></script>
 <style>
   :root {
-    --pg-bg: #f3f4f6; --card-bg: #fff;
-    --ink: #111827; --dim: #374151; --muted: #6b7280; --faint: #9ca3af; --rule: #e5e7eb;
-    --iktidar: #dc2626; --iktidar-dk: #991b1b;
-    --muhalefet: #2563eb; --muhalefet-dk: #1e40af;
-    --tossup: #fde047; --brand: #4f46e5;
+    --display: 'Eczar', Georgia, serif;
+    --body:    'Source Serif 4', 'Source Serif Pro', Georgia, serif;
+    --mono:    'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+
+    --bg:        #f1e7cf;
+    --bg-2:      #ead9b5;
+    --paper:     #f4eccf;
+
+    --ink:       #1d1810;
+    --ink-dim:   #3a2f1f;
+    --muted:     #7e6a4a;
+    --muted-2:   #9d8460;
+
+    --rule:      #2a2317;
+    --rule-soft: #c1ad84;
+
+    --blue:      #2a4a72;
+    --blue-soft: #a8c2dd;
+    --blue-deep: #1a3050;
+    --red:       #a83a30;
+    --red-soft:  #dba29a;
+    --red-deep:  #6e1f1a;
+    --yellow:      #c89834;
+    --yellow-soft: #e3c986;
   }
-  html.dark {
-    --pg-bg: #0a0a0a; --card-bg: #141414;
-    --ink: #fff; --dim: #d0d0d0; --muted: #a0a0a0; --faint: #8a8a8a; --rule: #333;
-    --iktidar: #f87171; --iktidar-dk: #fca5a5;
-    --muhalefet: #60a5fa; --muhalefet-dk: #93c5fd;
+  [data-theme="dark"] {
+    --bg:        #1a1612;
+    --bg-2:      #221c16;
+    --paper:     #25201a;
+    --ink:       #e8dcc0;
+    --ink-dim:   #c8baa0;
+    --muted:     #8a7d65;
+    --muted-2:   #5e5340;
+    --rule:      #6e6048;
+    --rule-soft: #3d3528;
+    --blue:      #6a8cc5;
+    --blue-soft: #2a3a52;
+    --blue-deep: #b6cdef;
+    --red:       #c5685a;
+    --red-soft:  #4e2922;
+    --red-deep:  #efb5a8;
+    --yellow:      #d7ae50;
+    --yellow-soft: #5e4818;
   }
+
   * { box-sizing: border-box; }
   html, body {
-    margin: 0; padding: 0; background: var(--pg-bg);
-    background-image:
-      radial-gradient(circle at 10% 10%, var(--pg-bg-grad-1, #eef2ff) 0%, transparent 40%),
-      radial-gradient(circle at 90% 20%, var(--pg-bg-grad-2, #fff1f2) 0%, transparent 40%);
-    background-attachment: fixed;
+    margin: 0; padding: 0;
+    background: var(--bg);
     color: var(--ink);
-    font-family: 'Inter', system-ui, -apple-system, sans-serif;
-    -webkit-font-smoothing: antialiased; font-weight: 500; min-height: 100vh;
+    font-family: var(--body);
+    font-size: 14.5px; line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    min-height: 100vh;
   }
-  html.dark body { --pg-bg-grad-1: rgba(79,70,229,0.1); --pg-bg-grad-2: rgba(220,38,38,0.08); }
-  .wrap { max-width: 1380px; margin: 0 auto; padding: 16px 16px 28px; }
+  .wrap { max-width: 1240px; margin: 0 auto; padding: 28px 20px 56px; }
 
-  .title-row { display: flex; align-items: stretch; gap: 14px; margin-bottom: 14px; flex-wrap: wrap; }
-  .title-left, .title-right {
-    background: var(--card-bg); border: 1px solid var(--ink);
-    box-shadow: 4px 4px 0 0 var(--ink); padding: 10px 14px;
+  /* Hero — kicker + display-serif title + italic lede, 2px ink underline */
+  .title-row {
+    display: flex; justify-content: space-between; align-items: flex-end;
+    gap: 24px; flex-wrap: wrap;
+    border-bottom: 2px solid var(--ink);
+    padding-bottom: 16px; margin-bottom: 28px;
   }
-  .title-left { flex: 1; min-width: 280px; display: flex; align-items: center; gap: 14px; }
-  .title-right { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-  .display-mark { font-weight: 900; font-size: 30px; letter-spacing: -0.04em; color: var(--ink); line-height: 1; }
-  .display-mark .sep-i { color: var(--iktidar-dk); }
-  .display-mark .sep-m { color: var(--muhalefet-dk); }
-  .vrule { width: 1px; align-self: stretch; background: var(--ink); opacity: 0.4; }
-  .micro { font: 800 10px/1 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: 0.08em; color: var(--muted); text-transform: uppercase; }
-  .display-sub { font-weight: 700; font-size: 12px; color: var(--dim); letter-spacing: -0.01em; }
-
-  .toggle-btn {
-    background: var(--card-bg); border: 1px solid var(--ink); color: var(--ink);
-    font: 800 11px/1 'Inter'; padding: 6px 10px; cursor: pointer;
-    letter-spacing: 0.04em; text-transform: uppercase;
+  .title-left { display: flex; flex-direction: column; gap: 2px; min-width: 280px; }
+  .title-right {
+    display: flex; align-items: flex-end; gap: 18px; flex-wrap: wrap;
   }
-  .toggle-btn.active { background: var(--ink); color: var(--card-bg); }
-
-  .grid { display: grid; grid-template-columns: 280px 1fr; gap: 14px; }
-
-  .panel {
-    background: var(--card-bg); border: 1px solid var(--ink);
-    box-shadow: 4px 4px 0 0 var(--ink); padding: 12px 14px; margin-bottom: 14px;
-  }
-  .panel h3 { font-weight: 700; font-size: 13px; letter-spacing: -0.01em; margin: 0 0 10px; color: var(--ink); }
-  .panel .label {
-    font: 800 10px/1.2 ui-monospace, monospace;
-    letter-spacing: 0.08em; color: var(--muted); text-transform: uppercase;
+  .kicker {
+    font-family: var(--mono); font-size: 10px; font-weight: 500;
+    text-transform: uppercase; letter-spacing: 0.18em; color: var(--muted);
     margin-bottom: 4px;
   }
+  .hero-title {
+    font-family: var(--display); font-weight: 700; font-size: 38px;
+    letter-spacing: -0.01em; line-height: 1.05; margin: 0; color: var(--ink);
+  }
+  .hero-sub {
+    font-family: var(--body); font-style: italic; font-size: 13.5px;
+    color: var(--muted); margin-top: 4px; line-height: 1.4;
+  }
+  .micro {
+    font-family: var(--mono); font-size: 10px; font-weight: 500;
+    text-transform: uppercase; letter-spacing: 0.14em; color: var(--muted);
+  }
+  .hdr-val {
+    font-family: var(--display); font-weight: 700; font-size: 22px;
+    color: var(--ink); font-variant-numeric: tabular-nums;
+    letter-spacing: -0.01em; line-height: 1; margin-top: 2px;
+  }
+  .vrule { width: 1px; align-self: stretch; background: var(--rule-soft); }
 
-  .region-list { display: flex; flex-direction: column; gap: 6px; }
+  /* Inline toggle — chip style, no pill background */
+  .toggle-btn {
+    appearance: none; -webkit-appearance: none;
+    background: transparent; border: 1px solid var(--rule-soft);
+    color: var(--ink); cursor: pointer;
+    font-family: var(--mono); font-size: 11px;
+    padding: 4px 9px; border-radius: 0; line-height: 1.3;
+    transition: background 0.2s ease, color 0.2s ease;
+  }
+  .toggle-btn:hover:not(.active):not(:disabled) { background: var(--bg-2); }
+  .toggle-btn.active {
+    background: var(--ink); color: var(--paper);
+    border-color: var(--ink); font-weight: 600;
+  }
+
+  /* Layout */
+  .grid { display: grid; grid-template-columns: 264px 1fr; gap: 28px; align-items: start; }
+
+  /* Panels — no card; structured by hairline rules */
+  .panel { margin-bottom: 20px; }
+  .panel + .panel {
+    border-top: 1px solid var(--rule-soft);
+    padding-top: 18px;
+  }
+  .panel h3 {
+    font-family: var(--display); font-weight: 600; font-size: 17px;
+    margin: 0 0 10px; color: var(--ink); letter-spacing: 0;
+  }
+  .panel .label {
+    font-family: var(--mono); font-size: 10px; font-weight: 500;
+    text-transform: uppercase; letter-spacing: 0.14em; color: var(--muted);
+    margin-bottom: 6px;
+  }
+
+  /* Region list — paper rows divided by hairline */
+  .region-list { display: flex; flex-direction: column; }
   .region-card {
-    background: var(--card-bg); border: 1px solid var(--ink); padding: 8px 10px; cursor: pointer;
-    display: grid; grid-template-columns: 1fr auto; gap: 4px 8px; align-items: center;
-    transition: 0.1s;
+    background: transparent; padding: 8px 10px; cursor: pointer;
+    display: grid; grid-template-columns: 1fr auto; gap: 4px 8px;
+    align-items: center;
+    border-bottom: 1px solid var(--rule-soft);
+    transition: background 0.2s ease;
   }
-  .region-card.active {
-    box-shadow: 3px 3px 0 0 var(--ink); transform: translate(-1px, -1px);
-    border-width: 2px; padding: 7px 9px;
+  .region-card:first-child { border-top: 1px solid var(--rule-soft); }
+  .region-card.active { background: var(--paper); }
+  .region-card:hover:not(.active) { background: var(--bg-2); }
+  .region-card .nm {
+    font-family: var(--body); font-weight: 600; font-size: 13.5px; color: var(--ink);
   }
-  .region-card:hover:not(.active) { background: var(--rule); }
-  .region-card .nm { font: 700 12px 'Inter'; color: var(--ink); letter-spacing: -0.01em; }
-  .region-card .seats { font: 800 12px ui-monospace, monospace; color: var(--ink); font-variant-numeric: tabular-nums; }
+  .region-card .seats {
+    font-family: var(--mono); font-weight: 600; font-size: 12px;
+    color: var(--ink); font-variant-numeric: tabular-nums;
+  }
   .region-card .meta {
-    font: 600 10px ui-monospace, monospace; color: var(--muted);
+    font-family: var(--mono); font-size: 10.5px; color: var(--muted);
     grid-column: 1 / -1; font-variant-numeric: tabular-nums;
   }
   .region-card .meta .dot {
-    display: inline-block; width: 6px; height: 6px; vertical-align: middle;
-    margin-right: 4px; border: 1px solid var(--ink);
+    display: inline-block; width: 7px; height: 7px; vertical-align: middle;
+    margin-right: 5px;
   }
-  .region-card .meta .dot.idle      { background: var(--card-bg); }
-  .region-card .meta .dot.loading   { background: var(--faint); }
-  .region-card .meta .dot.running   { background: var(--brand); }
-  .region-card .meta .dot.done      { background: #4ade80; }
-  .region-card .meta .dot.error     { background: var(--iktidar); }
+  .region-card .meta .dot.idle      { background: var(--rule-soft); }
+  .region-card .meta .dot.loading   { background: var(--muted-2); }
+  .region-card .meta .dot.running   { background: var(--yellow); }
+  .region-card .meta .dot.done      { background: var(--blue); }
+  .region-card .meta .dot.error     { background: var(--red); }
 
+  /* Number input — hairline border */
   .nin {
-    background: var(--card-bg); border: 1px solid var(--ink);
-    box-shadow: 2px 2px 0 0 var(--ink); color: var(--ink);
-    padding: 5px 8px; font: 700 14px ui-monospace, monospace;
-    width: 100%; outline: none; -moz-appearance: textfield;
+    background: transparent; border: 1px solid var(--rule-soft);
+    color: var(--ink); padding: 6px 10px;
+    font-family: var(--mono); font-weight: 600; font-size: 14px;
+    width: 100%; outline: none; -moz-appearance: textfield; border-radius: 0;
     font-variant-numeric: tabular-nums;
+    transition: border-color 0.2s ease;
   }
+  .nin:focus { border-color: var(--ink); }
   .nin::-webkit-outer-spin-button, .nin::-webkit-inner-spin-button { display: none; }
 
+  /* Slider — Almanac square thumb */
   .slider-track {
-    width: 100%; height: 4px; background: var(--rule); border: 1px solid var(--ink);
-    position: relative; cursor: pointer; margin: 12px 0 8px;
+    width: 100%; height: 4px; background: var(--rule-soft);
+    position: relative; cursor: pointer; margin: 14px 0 8px;
   }
   .slider-fill {
-    position: absolute; left: 0; top: -1px; bottom: -1px;
-    background: var(--brand);
-    border-top: 1px solid var(--ink); border-bottom: 1px solid var(--ink);
-    pointer-events: none;
+    position: absolute; left: 0; top: 0; bottom: 0;
+    background: var(--ink); pointer-events: none;
   }
   .slider-thumb {
-    position: absolute; top: 50%; width: 12px; height: 12px;
-    background: var(--brand); border: 1px solid var(--ink);
-    box-shadow: 2px 2px 0 0 var(--ink); transform: translate(-50%, -50%); pointer-events: none;
+    position: absolute; top: 50%; width: 14px; height: 14px;
+    background: var(--ink); border: 1px solid var(--ink);
+    transform: translate(-50%, -50%); pointer-events: none;
   }
 
+  /* Checkboxes */
   .check-row {
     display: flex; align-items: center; gap: 8px; margin-bottom: 6px;
     cursor: pointer; user-select: none;
   }
-  .check-row .box { width: 12px; height: 12px; border: 1px solid var(--ink); background: var(--card-bg); flex-shrink: 0; }
-  .check-row.on .box { background: var(--ink); }
-  .check-row .lbl { font: 700 12px 'Inter'; color: var(--ink); }
-
-  button.cmd {
-    background: var(--card-bg); border: 1px solid var(--ink); color: var(--ink);
-    box-shadow: 4px 4px 0 0 var(--ink);
-    font: 800 12px 'Inter'; letter-spacing: 0.04em; text-transform: uppercase;
-    padding: 8px 0; cursor: pointer; transition: 0.1s; width: 100%;
+  .check-row .box {
+    width: 12px; height: 12px;
+    border: 1px solid var(--rule-soft); background: transparent; flex-shrink: 0;
+    transition: background 0.2s ease, border-color 0.2s ease;
   }
-  button.cmd:hover:not(:disabled) { transform: translate(-1px,-1px); box-shadow: 5px 5px 0 0 var(--ink); }
-  button.cmd:active:not(:disabled) { transform: translate(2px,2px); box-shadow: 2px 2px 0 0 var(--ink); }
-  button.cmd.go { background: var(--ink); color: var(--card-bg); }
+  .check-row.on .box { background: var(--ink); border-color: var(--ink); }
+  .check-row .lbl {
+    font-family: var(--body); font-weight: 500; font-size: 13.5px; color: var(--ink);
+  }
+
+  /* Buttons — flat, hairline, ink-fill for primary */
+  button.cmd {
+    appearance: none;
+    background: transparent;
+    border: 1px solid var(--rule-soft); color: var(--ink);
+    font-family: var(--mono); font-size: 11px; font-weight: 600;
+    letter-spacing: 0.08em; text-transform: uppercase;
+    padding: 8px 0; cursor: pointer; width: 100%;
+    border-radius: 0;
+    transition: background 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+  }
+  button.cmd:hover:not(:disabled) { background: var(--bg-2); }
+  button.cmd.go {
+    background: var(--ink); color: var(--paper); border-color: var(--ink);
+  }
+  button.cmd.go:hover:not(:disabled) { background: var(--ink-dim); border-color: var(--ink-dim); }
   button.cmd:disabled { opacity: 0.3; cursor: not-allowed; }
 
+  /* Map — borderless, the page bg shows through */
   .map-wrap {
-    position: relative; aspect-ratio: 16 / 9;
-    background: var(--card-bg); border: 1px solid var(--ink); overflow: hidden;
+    position: relative; aspect-ratio: 5 / 3;
+    background: transparent;
   }
   #map { width: 100%; height: 100%; display: block; }
   #map path { vector-effect: non-scaling-stroke; }
 
   .map-overlay {
-    position: absolute; bottom: 8px; left: 8px;
-    background: var(--card-bg); border: 1px solid var(--ink);
-    padding: 6px 8px; font: 700 11px ui-monospace, monospace;
-    display: flex; gap: 12px; align-items: center;
+    position: absolute; bottom: 10px; left: 10px;
+    background: var(--paper); border: 1px solid var(--ink);
+    padding: 8px 10px;
+    font-family: var(--mono); font-size: 11px;
+    display: flex; gap: 14px; align-items: center;
   }
   .map-overlay-tr {
-    position: absolute; top: 8px; right: 8px;
-    background: var(--card-bg); border: 1px solid var(--ink);
-    padding: 6px 8px; font: 700 11px ui-monospace, monospace; color: var(--dim);
+    position: absolute; top: 10px; right: 10px;
+    background: var(--paper); border: 1px solid var(--ink);
+    padding: 6px 10px;
+    font-family: var(--mono); font-size: 11px; color: var(--ink);
   }
-  .legend-chip { display: inline-flex; align-items: center; gap: 5px; }
-  .legend-chip .sw { width: 10px; height: 10px; border: 1px solid var(--ink); }
+  .legend-chip { display: inline-flex; align-items: center; gap: 6px; }
+  .legend-chip .sw { width: 10px; height: 10px; }
 
+  /* Progress overlay */
   .progress-overlay {
-    position: absolute; inset: 0; background: rgba(0,0,0,0.05);
-    display: flex; align-items: center; justify-content: center; pointer-events: none;
+    position: absolute; inset: 0;
+    background: rgba(29,24,16,0.06);
+    display: flex; align-items: center; justify-content: center;
+    pointer-events: none;
   }
-  html.dark .progress-overlay { background: rgba(255,255,255,0.05); }
+  [data-theme="dark"] .progress-overlay { background: rgba(232,220,192,0.06); }
   .progress-card {
-    background: var(--card-bg); border: 1px solid var(--ink);
-    box-shadow: 4px 4px 0 0 var(--ink); padding: 14px 18px; min-width: 280px;
+    background: var(--paper); border: 1px solid var(--ink);
+    padding: 14px 18px; min-width: 280px;
   }
-  .progress-card .ttl { font: 800 11px ui-monospace, monospace; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink); margin-bottom: 8px; }
-  .progress-bar { height: 6px; background: var(--rule); border: 1px solid var(--ink); position: relative; }
-  .progress-bar > div { position: absolute; inset: 0; background: var(--brand); width: 0%; transition: width 0.2s; }
-  .progress-pct { font: 700 11px ui-monospace, monospace; color: var(--dim); margin-top: 6px; }
+  .progress-card .ttl {
+    font-family: var(--mono); font-size: 10px; font-weight: 500;
+    letter-spacing: 0.14em; text-transform: uppercase;
+    color: var(--muted); margin-bottom: 8px;
+  }
+  .progress-bar { height: 4px; background: var(--rule-soft); position: relative; }
+  .progress-bar > div {
+    position: absolute; inset: 0; background: var(--ink); width: 0%;
+    transition: width 0.2s ease;
+  }
+  .progress-pct {
+    font-family: var(--mono); font-size: 11px; color: var(--ink);
+    margin-top: 6px; font-variant-numeric: tabular-nums;
+  }
 
-  /* Hover tooltip — riso card pinned to cursor. pointer-events:none so it
-     never steals mouseleave from the path under it. */
+  /* Map hover tooltip — paper, ink border, no shadow */
   .map-tooltip {
     position: absolute; z-index: 20; pointer-events: none;
-    background: var(--card-bg); border: 1px solid var(--ink);
-    box-shadow: 4px 4px 0 0 var(--ink); padding: 8px 10px;
-    min-width: 180px; max-width: 280px;
-    font: 600 11px ui-monospace, monospace; color: var(--ink);
+    background: var(--paper); border: 1px solid var(--ink);
+    padding: 8px 10px; min-width: 180px; max-width: 280px;
+    font-family: var(--body); font-size: 12px; color: var(--ink);
     line-height: 1.5;
   }
-  .map-tooltip .tt-hdr { font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; font-size: 10px; color: var(--muted); margin-bottom: 4px; }
-  .map-tooltip .tt-row { display: flex; justify-content: space-between; gap: 12px; }
-  .map-tooltip .tt-row .v { font-variant-numeric: tabular-nums; }
-  .map-tooltip .tt-pos { color: #7f1d1d; }
-  .map-tooltip .tt-neg { color: #a16207; }
-  .map-tooltip .tt-tossup { color: #4b5563; }
-  .map-tooltip hr { border: 0; border-top: 1px solid var(--rule); margin: 6px 0; }
-
-  .metrics { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin-top: 14px; }
-  .metric {
-    background: var(--card-bg); border: 1px solid var(--ink);
-    box-shadow: 4px 4px 0 0 var(--ink); padding: 8px 10px;
+  .map-tooltip .tt-hdr {
+    font-family: var(--display); font-weight: 600; font-size: 13px;
+    color: var(--ink); margin-bottom: 4px;
   }
+  .map-tooltip .tt-row {
+    display: flex; justify-content: space-between; gap: 12px;
+    font-family: var(--mono); font-size: 11px;
+  }
+  .map-tooltip .tt-row .v { font-variant-numeric: tabular-nums; }
+  .map-tooltip .tt-pos { color: var(--red-deep); }
+  .map-tooltip .tt-neg { color: var(--blue-deep); }
+  .map-tooltip .tt-tossup { color: var(--muted); }
+  .map-tooltip hr { border: 0; border-top: 1px solid var(--rule-soft); margin: 6px 0; }
+
+  /* Metrics — hairline-divided cells, no per-cell card */
+  .metrics {
+    display: grid; grid-template-columns: repeat(5, 1fr);
+    margin-top: 22px;
+    border-top: 1px solid var(--rule-soft);
+    border-bottom: 1px solid var(--rule-soft);
+  }
+  .metric {
+    padding: 12px 14px;
+    border-right: 1px solid var(--rule-soft);
+  }
+  .metric:last-child { border-right: none; }
   .metric .v {
-    font: 900 22px ui-monospace, monospace; letter-spacing: -0.03em;
-    font-variant-numeric: tabular-nums; color: var(--ink);
+    font-family: var(--display); font-weight: 800; font-size: 24px;
+    letter-spacing: -0.02em; font-variant-numeric: tabular-nums;
+    color: var(--ink); line-height: 1.1;
   }
   .metric .k {
-    font: 800 9px/1 ui-monospace, monospace; letter-spacing: 0.08em;
-    text-transform: uppercase; color: var(--muted); margin-top: 4px;
+    font-family: var(--mono); font-size: 10px; font-weight: 500;
+    letter-spacing: 0.14em; text-transform: uppercase;
+    color: var(--muted); margin-top: 4px;
   }
 
-  .seats-bar { display: flex; height: 18px; border: 1px solid var(--ink); margin-top: 4px; overflow: hidden; }
-  .seats-bar .seg { height: 100%; }
+  .seats-bar {
+    display: flex; height: 16px; border: 1px solid var(--ink);
+    margin-top: 6px; overflow: hidden;
+  }
+  .seats-bar .seg { height: 100%; transition: width 0.3s ease; }
 
+  /* Score chart — top hairline, no card */
   .score-chart {
-    background: var(--card-bg); border: 1px solid var(--ink);
-    box-shadow: 4px 4px 0 0 var(--ink); padding: 10px 12px; margin-top: 14px;
+    margin-top: 22px; padding-top: 14px;
+    border-top: 1px solid var(--rule-soft);
   }
   .score-chart canvas { display: block; width: 100%; height: 120px; }
 
   .status {
-    margin-top: 10px; font: 700 11px ui-monospace, monospace; color: var(--dim);
-    display: flex; justify-content: space-between; border-top: 1px solid var(--rule);
-    padding-top: 8px; gap: 12px;
+    margin-top: 14px; padding-top: 10px;
+    border-top: 1px solid var(--rule-soft);
+    font-family: var(--mono); font-size: 11px; color: var(--muted);
+    display: flex; justify-content: space-between; gap: 12px;
   }
   .status .lhs { color: var(--ink); }
-  .status .err { color: var(--iktidar-dk); font-weight: 800; }
+  .status .err { color: var(--red-deep); font-weight: 600; }
 
   @media (max-width: 900px) {
     .grid { grid-template-columns: 1fr; }
     .map-wrap { aspect-ratio: 4 / 3; }
     .metrics { grid-template-columns: 1fr 1fr; }
+    .metric:nth-child(2n) { border-right: none; }
+    .metric { border-bottom: 1px solid var(--rule-soft); }
+    .metric:nth-last-child(-n+2) { border-bottom: none; }
+    .hero-title { font-size: 28px; }
   }
 </style>
 </head>
@@ -236,26 +365,25 @@
 
   <div class="title-row">
     <div class="title-left">
-      <div class="display-mark">TR<span class="sep-i">/</span><span class="sep-m">/</span>26</div>
-      <div class="vrule"></div>
-      <div>
-        <div class="micro">ReCom Redistricting</div>
-        <div class="display-sub">2023 milletvekili — mahalle level — 7 regions</div>
-      </div>
+      <div class="kicker">ReCom Redistricting · TR 2023 Milletvekili</div>
+      <h1 class="hero-title">Türkiye 2023 — mahalle-level seat maps</h1>
+      <div class="hero-sub">Recombination on 51,358 mahalles, 7 regions, with Antimander fair-redistricting objectives.</div>
     </div>
     <div class="title-right">
       <div>
         <div class="micro">National electorate</div>
-        <div id="hdr-electorate" style="font:800 14px ui-monospace,monospace;color:var(--ink)">—</div>
+        <div class="hdr-val" id="hdr-electorate">—</div>
       </div>
       <div class="vrule"></div>
       <div>
         <div class="micro">Total seats</div>
-        <div id="hdr-seats" style="font:800 14px ui-monospace,monospace;color:var(--ink)">—</div>
+        <div class="hdr-val" id="hdr-seats">—</div>
       </div>
       <div class="vrule"></div>
-      <button class="toggle-btn active" id="theme-light">☀</button>
-      <button class="toggle-btn" id="theme-dark">☾</button>
+      <div style="display:flex;gap:6px">
+        <button class="toggle-btn active" id="theme-light">Light</button>
+        <button class="toggle-btn" id="theme-dark">Dark</button>
+      </div>
     </div>
   </div>
 
@@ -265,7 +393,7 @@
       <div class="panel">
         <h3>Voters per district</h3>
         <input class="nin" type="number" id="in-vpd" value="100000" min="10000" max="2000000" step="1000">
-        <div style="font:600 11px ui-monospace,monospace;color:var(--muted);margin-top:6px;line-height:1.4">
+        <div style="font-family:var(--mono);font-size:11px;color:var(--muted);margin-top:8px;line-height:1.5">
           Apportionment target. Each region's<br>district count = round(electorate / target).
         </div>
       </div>
@@ -287,16 +415,18 @@
             <div class="slider-fill" id="tol-fill"></div>
             <div class="slider-thumb" id="tol-thumb"></div>
           </div>
-          <div style="font:700 12px ui-monospace,monospace;color:var(--ink)" id="tol-label">±10.0%</div>
+          <div style="font-family:var(--mono);font-weight:600;font-size:12px;color:var(--ink);font-variant-numeric:tabular-nums" id="tol-label">±10.0%</div>
         </div>
       </div>
 
       <div class="panel">
         <h3>Score</h3>
-        <div class="check-row on" data-key="cutEdges"><div class="box"></div><div class="lbl">Cut edges</div></div>
+        <button class="cmd" id="btn-antimander-preset" style="width:100%;margin-bottom:8px" title="Antimander's fair-redistricting bundle: minimize efficiency gap, maximize competitiveness, keep districts compact (cut-edge proxy), with population balance as hard constraint.">Antimander fair preset</button>
+        <div class="check-row on" data-key="cutEdges"><div class="box"></div><div class="lbl">Cut edges (compactness)</div></div>
         <div class="check-row on" data-key="popDev"><div class="box"></div><div class="lbl">Population balance</div></div>
-        <div class="check-row" data-key="meanMedian"><div class="box"></div><div class="lbl">Mean–median</div></div>
         <div class="check-row" data-key="effGap"><div class="box"></div><div class="lbl">Efficiency gap</div></div>
+        <div class="check-row" data-key="competitiveness"><div class="box"></div><div class="lbl">Competitiveness</div></div>
+        <div class="check-row" data-key="meanMedian"><div class="box"></div><div class="lbl">Mean–median</div></div>
         <div class="check-row" data-key="ilSplits"><div class="box"></div><div class="lbl">İl splits penalty</div></div>
       </div>
 
@@ -345,6 +475,7 @@
         <div class="metric"><div class="v" id="m-popdev">—</div><div class="k">Pop. dev (max)</div></div>
         <div class="metric"><div class="v" id="m-cutedges">—</div><div class="k">Cut edges</div></div>
         <div class="metric"><div class="v" id="m-effgap">—</div><div class="k">Efficiency gap</div></div>
+        <div class="metric"><div class="v" id="m-compet">—</div><div class="k">Competitiveness</div></div>
         <div class="metric"><div class="v" id="m-meanmed">—</div><div class="k">Mean–median</div></div>
         <div class="metric">
           <div class="v" id="m-seats">—</div>
@@ -738,9 +869,9 @@ function scoreFromState(S, weights) {
     }
     s += weights.popDev * (maxDev * 100) * (maxDev * 100);
   }
-  if (weights.meanMedian || weights.effGap) {
+  if (weights.meanMedian || weights.effGap || weights.competitiveness) {
     const k = S.k;
-    let mean = 0, wd = 0, wr = 0, total = 0;
+    let mean = 0, wd = 0, wr = 0, total = 0, marginSum = 0;
     const shares = new Float64Array(k);
     for (let d = 0; d < k; d++) {
       const t = S.muhs[d] + S.ikts[d];
@@ -751,6 +882,7 @@ function scoreFromState(S, weights) {
         else          { wd += sh * t; wr += (0.5 - sh) * t; }
         total += t;
       }
+      if (weights.competitiveness) marginSum += 2 * Math.abs(sh - 0.5);
     }
     mean /= k;
     if (weights.meanMedian) {
@@ -763,6 +895,10 @@ function scoreFromState(S, weights) {
       const eg = total > 0 ? (wd - wr) / total : 0;
       s += weights.effGap * (eg * 100) * (eg * 100);
     }
+    if (weights.competitiveness) {
+      const mm = (marginSum / k) * 100;
+      s += weights.competitiveness * mm * mm;
+    }
   }
   if (weights.ilSplits) s += weights.ilSplits * S.ilSplits;
   return s;
@@ -774,7 +910,7 @@ function metricsFromState(S) {
   let maxDev = 0;
   let mWin = 0, kWin = 0;
   let wd = 0, wr = 0, total = 0;
-  let mean = 0;
+  let mean = 0, marginSum = 0;
   const shares = new Float64Array(k);
   for (let d = 0; d < k; d++) {
     const dev = Math.abs(S.pops[d] - ideal) / ideal;
@@ -782,6 +918,7 @@ function metricsFromState(S) {
     const t = S.muhs[d] + S.ikts[d];
     const sh = t > 0 ? S.muhs[d] / t : 0.5;
     shares[d] = sh; mean += sh;
+    marginSum += 2 * Math.abs(sh - 0.5);
     if (sh > 0.5) { mWin++; wd += (sh - 0.5) * t; wr += (1 - sh) * t; }
     else          { kWin++; wd += sh * t; wr += (0.5 - sh) * t; }
     total += t;
@@ -794,6 +931,7 @@ function metricsFromState(S) {
     cutEdges: S.cutEdges,
     effGap: total > 0 ? (wd - wr) / total : 0,
     meanMed: mean - median,
+    competitiveness: marginSum / k,
     muhSeats: mWin, iktSeats: kWin,
     ilSplits: S.ilSplits,
   };
@@ -947,9 +1085,9 @@ function recomStepInc(S, tol, weights, T, rng) {
     }
     proposed += weights.popDev * (maxDev * 100) * (maxDev * 100);
   }
-  if (weights.meanMedian || weights.effGap) {
+  if (weights.meanMedian || weights.effGap || weights.competitiveness) {
     const k = S.k;
-    let mean = 0, wdv = 0, wrv = 0, total = 0;
+    let mean = 0, wdv = 0, wrv = 0, total = 0, marginSum = 0;
     const shares = new Float64Array(k);
     for (let d = 0; d < k; d++) {
       const muh = (d === d1) ? newMuh_d1 : (d === d2) ? newMuh_d2 : S.muhs[d];
@@ -962,6 +1100,7 @@ function recomStepInc(S, tol, weights, T, rng) {
         else          { wdv += sh * t; wrv += (0.5 - sh) * t; }
         total += t;
       }
+      if (weights.competitiveness) marginSum += 2 * Math.abs(sh - 0.5);
     }
     mean /= k;
     if (weights.meanMedian) {
@@ -973,6 +1112,10 @@ function recomStepInc(S, tol, weights, T, rng) {
     if (weights.effGap) {
       const eg = total > 0 ? (wdv - wrv) / total : 0;
       proposed += weights.effGap * (eg * 100) * (eg * 100);
+    }
+    if (weights.competitiveness) {
+      const mm = (marginSum / k) * 100;
+      proposed += weights.competitiveness * mm * mm;
     }
   }
   if (weights.ilSplits) proposed += weights.ilSplits * newIlSplits;
@@ -1178,8 +1321,8 @@ function flipStep(S, weights, rng) {
       }
       newScore += weights.popDev * (maxDev * 100) * (maxDev * 100);
     }
-    if (weights.meanMedian || weights.effGap) {
-      let mean = 0, wd = 0, wr = 0, total = 0;
+    if (weights.meanMedian || weights.effGap || weights.competitiveness) {
+      let mean = 0, wd = 0, wr = 0, total = 0, marginSum = 0;
       const shares = new Float64Array(kk);
       for (let d = 0; d < kk; d++) {
         const m = (d === dFrom) ? newMuhFrom : (d === dTo) ? newMuhTo : S.muhs[d];
@@ -1192,6 +1335,7 @@ function flipStep(S, weights, rng) {
           else          { wd += sh * t; wr += (0.5 - sh) * t; }
           total += t;
         }
+        if (weights.competitiveness) marginSum += 2 * Math.abs(sh - 0.5);
       }
       mean /= kk;
       if (weights.meanMedian) {
@@ -1203,6 +1347,10 @@ function flipStep(S, weights, rng) {
       if (weights.effGap) {
         const eg = total > 0 ? (wd - wr) / total : 0;
         newScore += weights.effGap * (eg * 100) * (eg * 100);
+      }
+      if (weights.competitiveness) {
+        const mm = (marginSum / kk) * 100;
+        newScore += weights.competitiveness * mm * mm;
       }
     }
     if (weights.ilSplits) newScore += weights.ilSplits * newIlSplits;
@@ -1330,7 +1478,7 @@ self.onmessage = (e) => {
     const polish = !!m.polish;
     const rng = mkRng(m.seed | 0);
     // Polish weights: only popDev matters during flip phase
-    const wPolish = { cutEdges: 0, popDev: 1, ilSplits: 0, meanMedian: 0, effGap: 0 };
+    const wPolish = { cutEdges: 0, popDev: 1, ilSplits: 0, meanMedian: 0, effGap: 0, competitiveness: 0 };
 
     let S;
     if (m.type === 'continue') {
@@ -1468,7 +1616,7 @@ const state = {
   active: 'national',   // 'national' or a region key
   workers: {},          // region key -> Worker (one worker per region, run in parallel)
   vpd: 100000,
-  weights: { cutEdges: 1, popDev: 50, meanMedian: 0, effGap: 0, ilSplits: 0 },
+  weights: { cutEdges: 1, popDev: 50, meanMedian: 0, effGap: 0, competitiveness: 0, ilSplits: 0 },
   tol: 0.10,
   scoreHist: [],
   colorMode: 'districts',
@@ -1483,11 +1631,20 @@ const getCSSVar = (n) => getComputedStyle(document.documentElement).getPropertyV
 $('theme-light').onclick = () => setTheme('light');
 $('theme-dark').onclick  = () => setTheme('dark');
 function setTheme(t) {
-  document.documentElement.classList.toggle('dark', t === 'dark');
+  document.documentElement.setAttribute('data-theme', t);
+  try { localStorage.setItem('theo-theme', t); } catch {}
   $('theme-light').classList.toggle('active', t === 'light');
   $('theme-dark').classList.toggle('active',  t === 'dark');
-  recolorAll(); drawScoreChart();
+  if (typeof recolorAll === 'function') recolorAll();
+  if (typeof drawScoreChart === 'function') drawScoreChart();
 }
+// Light is the canonical default; dark is opt-in. Never auto-apply
+// prefers-color-scheme.
+(() => {
+  let t = 'light';
+  try { t = localStorage.getItem('theo-theme') || 'light'; } catch {}
+  setTheme(t);
+})();
 
 function renderRegionList() {
   const el = $('region-list'); el.innerHTML = '';
@@ -1602,13 +1759,26 @@ document.querySelectorAll('.check-row').forEach(el => {
   };
 });
 function defaultWeight(k) {
-  if (k === 'cutEdges')   return 1;
-  if (k === 'popDev')     return 50;
-  if (k === 'meanMedian') return 5;
-  if (k === 'effGap')     return 5;
-  if (k === 'ilSplits')   return 2;
+  if (k === 'cutEdges')        return 1;
+  if (k === 'popDev')          return 50;
+  if (k === 'meanMedian')      return 5;
+  if (k === 'effGap')          return 5;
+  if (k === 'competitiveness') return 5;
+  if (k === 'ilSplits')        return 2;
   return 1;
 }
+
+// Antimander's fair-redistricting bundle: minimize efficiency gap +
+// maximize competitiveness + keep cut-edge compactness, with population
+// balance as a hard constraint (the existing tolerance slider).
+$('btn-antimander-preset').onclick = () => {
+  const preset = { cutEdges: 1, popDev: 50, effGap: 5, competitiveness: 5, meanMedian: 0, ilSplits: 0 };
+  for (const [k, w] of Object.entries(preset)) {
+    state.weights[k] = w;
+    const row = document.querySelector(`.check-row[data-key="${k}"]`);
+    if (row) row.classList.toggle('on', w > 0);
+  }
+};
 
 $('color-districts').onclick = () => { state.colorMode = 'districts'; setColorMode(); };
 $('color-partisan').onclick  = () => { state.colorMode = 'partisan';  setColorMode(); };
@@ -1720,7 +1890,7 @@ function processRegion(meta, tj) {
   const svgEl = d3.select('#map').node();
   const els = new Array(N);
   const ink = getCSSVar('--ink');
-  const cardBg = getCSSVar('--card-bg');
+  const cardBg = getCSSVar('--bg-2');
   for (let i = 0; i < N; i++) {
     const d = path(fc.features[i]) || '';
     const el = document.createElementNS('http://www.w3.org/2000/svg', 'path');
@@ -2018,7 +2188,7 @@ function resetRegion() {
   }
   r.assignment = null; r.scoreHist = []; r.iter = 0; r.metrics = null; r.status = 'idle';
   state.scoreHist = [];
-  for (const el of state.pathEls[state.active] || []) el.setAttribute('fill', getCSSVar('--card-bg'));
+  for (const el of state.pathEls[state.active] || []) el.setAttribute('fill', getCSSVar('--bg-2'));
   if (r.borderEl) r.borderEl.setAttribute('d', '');
   renderRegionList(); drawScoreChart(); updateMetricsPanel(); updateButtons();
   status(`${r.label}: reset`, '');
@@ -2039,7 +2209,7 @@ function recolorRegion(key) {
   const r = state.regions[key];
   const els = state.pathEls[key];
   if (!r || !els) return;
-  const cardBg = getCSSVar('--card-bg');
+  const cardBg = getCSSVar('--bg-2');
   if (!r.assignment) {
     for (const el of els) el.setAttribute('fill', cardBg);
     redrawDistrictBorders(key);
@@ -2332,37 +2502,33 @@ function positionTooltip(e) {
   tip.style.left = x + 'px';
   tip.style.top  = y + 'px';
 }
-// Continuous partisan color scale, LAB-interpolated through 7 anchor colors.
-// LAB interpolation between green and red passes through desaturated grays
-// instead of yellow (which is already used for lean Iktidar), so close races
-// shade naturally around the green tossup midpoint. Scale built once, lazily.
-let _iktidarScale = null, _muhalefetScale = null;
-const TOSSUP_COLOR = '#9ca3af';
+// Continuous partisan color scale — Almanac palette.
+// Iktidar (Rep slot) → red family (--red-deep ↔ --red-soft);
+// Muhalefet (Dem slot) → blue family (--blue-soft ↔ --blue-deep);
+// Tossup band 47–53% → yellow. Scales rebuilt on theme change.
+let _iktidarScale = null, _muhalefetScale = null, _scalesTheme = null;
 function partisanColor(s) {
-  // Three-zone palette:
-  //   s ∈ [0.47, 0.53]  → solid green (tossup band, no gradient)
-  //   s < 0.47          → amber↔yellow gradient inside Iktidar family only
-  //   s > 0.53          → red↔deep-red gradient inside Muhalefet family only
-  // Sharp boundary at 47/53 — the gradient never crosses through green.
-  if (s >= 0.47 && s <= 0.53) return TOSSUP_COLOR;
-  if (!_iktidarScale) {
+  const theme = document.documentElement.getAttribute('data-theme') || 'light';
+  if (theme !== _scalesTheme) {
     _iktidarScale = d3.scaleLinear()
-      .domain([0, 1])                       // 0 = strongest, 1 = weakest
-      .range(['#a16207', '#facc15'])        // deep amber → light yellow
+      .domain([0, 1])
+      .range([getCSSVar('--red-deep') || '#6e1f1a', getCSSVar('--red-soft') || '#dba29a'])
       .interpolate(d3.interpolateLab)
       .clamp(true);
     _muhalefetScale = d3.scaleLinear()
-      .domain([0, 1])                       // 0 = weakest, 1 = strongest
-      .range(['#dc2626', '#7f1d1d'])        // red → deep red
+      .domain([0, 1])
+      .range([getCSSVar('--blue-soft') || '#a8c2dd', getCSSVar('--blue-deep') || '#1a3050'])
       .interpolate(d3.interpolateLab)
       .clamp(true);
+    _scalesTheme = theme;
   }
+  if (s >= 0.47 && s <= 0.53) return getCSSVar('--yellow') || '#c89834';
   if (s < 0.47) {
-    // Map s ∈ [0.20, 0.47] → t ∈ [0, 1]. Saturate at deep amber for s ≤ 0.20.
+    // s ∈ [0.20, 0.47] → t ∈ [0, 1]. Saturate at deepest red for s ≤ 0.20.
     const t = (s - 0.20) / (0.47 - 0.20);
     return _iktidarScale(t);
   }
-  // Map s ∈ [0.53, 0.80] → t ∈ [0, 1]. Saturate at deep red for s ≥ 0.80.
+  // s ∈ [0.53, 0.80] → t ∈ [0, 1]. Saturate at deepest blue for s ≥ 0.80.
   const t = (s - 0.53) / (0.80 - 0.53);
   return _muhalefetScale(t);
 }
@@ -2371,9 +2537,9 @@ function drawLegend() {
   const lg = $('legend');
   if (state.colorMode === 'partisan') {
     lg.innerHTML = `
-      <span class="legend-chip"><span class="sw" style="background:#a16207"></span>Iktidar</span>
-      <span class="legend-chip"><span class="sw" style="background:#9ca3af"></span>Tossup</span>
-      <span class="legend-chip"><span class="sw" style="background:#7f1d1d"></span>Muhalefet</span>
+      <span class="legend-chip"><span class="sw" style="background:var(--red-deep)"></span>Iktidar</span>
+      <span class="legend-chip"><span class="sw" style="background:var(--yellow)"></span>Tossup</span>
+      <span class="legend-chip"><span class="sw" style="background:var(--blue-deep)"></span>Muhalefet</span>
     `;
   } else {
     if (state.active === 'national') {
@@ -2395,20 +2561,21 @@ function drawLegend() {
 function updateMetricsPanel() {
   const m = state.active === 'national' ? aggregatedMetrics() : state.regions[state.active]?.metrics;
   if (!m) {
-    ['m-popdev','m-cutedges','m-effgap','m-meanmed','m-seats'].forEach(id => $(id).textContent = '—');
+    ['m-popdev','m-cutedges','m-effgap','m-compet','m-meanmed','m-seats'].forEach(id => $(id).textContent = '—');
     $('seats-bar').style.display = 'none';
     return;
   }
   $('m-popdev').textContent  = (m.popDev * 100).toFixed(2) + '%';
   $('m-cutedges').textContent = m.cutEdges.toLocaleString();
   $('m-effgap').textContent  = m.effGap == null ? '—' : (m.effGap * 100).toFixed(2) + '%';
+  $('m-compet').textContent  = m.competitiveness == null ? '—' : (m.competitiveness * 100).toFixed(1) + '% margin';
   $('m-meanmed').textContent = m.meanMed == null ? '—' : (m.meanMed * 100).toFixed(2) + '%';
   $('m-seats').textContent   = `${m.muhSeats} / ${m.iktSeats}`;
   const total = m.muhSeats + m.iktSeats;
   if (total > 0) {
     $('seats-bar').style.display = 'flex';
-    $('seg-m').style.cssText = `width:${100 * m.muhSeats / total}%;background:#1e40af`;
-    $('seg-i').style.cssText = `width:${100 * m.iktSeats / total}%;background:#991b1b`;
+    $('seg-m').style.cssText = `width:${100 * m.muhSeats / total}%;background:var(--blue-deep)`;
+    $('seg-i').style.cssText = `width:${100 * m.iktSeats / total}%;background:var(--red-deep)`;
   } else $('seats-bar').style.display = 'none';
 }
 
@@ -2422,7 +2589,7 @@ function aggregatedMetrics() {
   // Aggregate effGap and meanMed across ALL districts in ALL regions.
   // effGap: sum (wasted_dem - wasted_rep) across districts / sum(total_votes)
   // meanMed: mean(shares) - median(shares) over all national districts
-  let totWd = 0, totWr = 0, totVotes = 0;
+  let totWd = 0, totWr = 0, totVotes = 0, marginSum = 0;
   const allShares = [];
   for (const meta of REGIONS) {
     const r = state.regions[meta.key];
@@ -2445,13 +2612,14 @@ function aggregatedMetrics() {
       if (t === 0) { allShares.push(0.5); continue; }
       const sh = m[d] / t;
       allShares.push(sh);
+      marginSum += 2 * Math.abs(sh - 0.5);
       if (sh > 0.5) { totWd += (sh - 0.5) * t; totWr += (1 - sh) * t; }
       else          { totWd += sh * t;          totWr += (0.5 - sh) * t; }
       totVotes += t;
     }
   }
   if (!any) return null;
-  let effGap = null, meanMed = null;
+  let effGap = null, meanMed = null, competitiveness = null;
   if (totVotes > 0) effGap = (totWd - totWr) / totVotes;
   if (allShares.length > 0) {
     const sorted = allShares.slice().sort((a, b) => a - b);
@@ -2461,8 +2629,9 @@ function aggregatedMetrics() {
     for (const s of sorted) mean += s;
     mean /= n;
     meanMed = mean - median;
+    competitiveness = marginSum / n;
   }
-  return { popDev, cutEdges, effGap, meanMed, muhSeats, iktSeats, ilSplits: ilSplitsTotal };
+  return { popDev, cutEdges, effGap, meanMed, competitiveness, muhSeats, iktSeats, ilSplits: ilSplitsTotal };
 }
 
 function drawScoreChart() {
@@ -2474,8 +2643,6 @@ function drawScoreChart() {
   ctx.scale(dpr, dpr);
   ctx.clearRect(0, 0, w, h);
   const ink = getCSSVar('--ink');
-  ctx.strokeStyle = ink; ctx.lineWidth = 1;
-  ctx.strokeRect(0.5, 0.5, w - 1, h - 1);
   if (state.scoreHist.length < 2) return;
   const data = state.scoreHist;
   const n = data.length;
@@ -2490,7 +2657,7 @@ function drawScoreChart() {
   }
   ctx.strokeStyle = ink; ctx.lineWidth = 1.5; ctx.stroke();
   ctx.fillStyle = getCSSVar('--muted');
-  ctx.font = '700 9px ui-monospace,monospace';
+  ctx.font = "500 10px 'IBM Plex Mono', ui-monospace, monospace";
   ctx.textAlign = 'right';
   ctx.fillText(mx.toFixed(0), w - 4, 12);
   ctx.fillText(mn.toFixed(0), w - 4, h - 4);
