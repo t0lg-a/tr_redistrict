@@ -336,6 +336,29 @@
     color: var(--muted); margin-top: 6px; line-height: 1.45;
   }
 
+  /* On-map zoom controls */
+  .zoom-ctrl {
+    position: absolute; left: 12px; top: 12px;
+    z-index: 20;
+    display: flex; flex-direction: column; gap: 0;
+    background: var(--paper); border: 1px solid var(--ink);
+    overflow: hidden;
+  }
+  .zoom-ctrl button {
+    width: 30px; height: 30px;
+    background: transparent; border: none;
+    border-bottom: 1px solid var(--rule-soft);
+    font-family: var(--display); font-size: 18px; font-weight: 700;
+    color: var(--ink); cursor: pointer; line-height: 1;
+    padding: 0; display: inline-flex; align-items: center; justify-content: center;
+    transition: background 0.12s;
+  }
+  .zoom-ctrl button:last-child { border-bottom: none; }
+  .zoom-ctrl button:hover { background: var(--bg-2); }
+  .zoom-ctrl button:active { background: var(--ink); color: var(--paper); }
+  #map { cursor: grab; }
+  #map:active { cursor: grabbing; }
+
   /* Buttons — flat, hairline, ink-fill for primary */
   button.cmd {
     appearance: none;
@@ -583,6 +606,11 @@
     <div>
       <div class="map-wrap">
         <svg id="map" preserveAspectRatio="xMidYMid meet"></svg>
+        <div class="zoom-ctrl">
+          <button id="btn-zoom-in"  title="Zoom in (or scroll up)">+</button>
+          <button id="btn-zoom-out" title="Zoom out (or scroll down)">−</button>
+          <button id="btn-zoom-reset" title="Reset to fit">⌖</button>
+        </div>
         <div class="map-overlay" id="legend">
           <span style="font-weight:800;letter-spacing:0.04em">Loading regions…</span>
         </div>
@@ -2846,6 +2874,9 @@ $('btn-runtr').onclick   = startRunNational;
 $('btn-polish').onclick  = startPolish;
 $('btn-export').onclick  = exportGeoJSON;
 $('btn-export-png').onclick = exportMapPNG;
+$('btn-zoom-in').onclick    = () => zoomBy(1.4);
+$('btn-zoom-out').onclick   = () => zoomBy(1 / 1.4);
+$('btn-zoom-reset').onclick = zoomReset;
 
 function status(l, r, isErr) {
   $('status-l').textContent = l;
@@ -2933,6 +2964,40 @@ function setupSvg() {
   const w = svg.node().clientWidth, h = svg.node().clientHeight;
   svg.attr('viewBox', `0 0 ${w} ${h}`);
   state.proj = d3.geoIdentity().reflectY(true).fitExtent([[8, 8], [w - 8, h - 8]], TR_BBOX_FEATURE);
+  // One transform group for all map content. d3.zoom writes its transform
+  // here so paths/borders/labels scale + pan as a unit.
+  const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+  g.id = 'zoom-g';
+  svg.node().appendChild(g);
+  state.zoomG = g;
+  const zoom = d3.zoom()
+    .scaleExtent([0.5, 50])
+    .filter((ev) => {
+      // Block zoom/pan when the gesture starts on an interactive overlay
+      // (drawer, tooltip, button bar). Wheel still works over the map.
+      const t = ev.target;
+      return !(t.closest && t.closest('.drawer, .map-overlay, .map-overlay-tr, .zoom-ctrl, .map-tooltip'));
+    })
+    .on('zoom', (ev) => {
+      g.setAttribute('transform', ev.transform.toString());
+      state.zoomK = ev.transform.k;
+      // Keep strokes visually constant by counter-scaling them.
+      g.style.setProperty('--zoom-k', ev.transform.k);
+    });
+  svg.call(zoom);
+  // Double-click-to-zoom collides with the dblclick to select; disable it.
+  svg.on('dblclick.zoom', null);
+  state.zoom = zoom;
+  state.zoomSvg = svg;
+  state.zoomK = 1;
+}
+function zoomBy(factor) {
+  if (!state.zoom || !state.zoomSvg) return;
+  state.zoomSvg.transition().duration(180).call(state.zoom.scaleBy, factor);
+}
+function zoomReset() {
+  if (!state.zoom || !state.zoomSvg) return;
+  state.zoomSvg.transition().duration(220).call(state.zoom.transform, d3.zoomIdentity);
 }
 
 function processRegion(meta, tj) {
@@ -2967,6 +3032,7 @@ function processRegion(meta, tj) {
     el.setAttribute('stroke', ink);
     el.setAttribute('stroke-width', '0.25');
     el.setAttribute('stroke-opacity', '0.10');
+    el.setAttribute('vector-effect', 'non-scaling-stroke');
     el.dataset.region = meta.key; el.dataset.idx = i;
     el.style.cursor = 'pointer';
     el.addEventListener('click', () => {
@@ -2984,7 +3050,7 @@ function processRegion(meta, tj) {
     el.addEventListener('mouseenter', onMahalleHover);
     el.addEventListener('mouseleave', onMahalleLeave);
     el.addEventListener('mousemove', onMahalleMove);
-    svgEl.appendChild(el);
+    state.zoomG.appendChild(el);
     els[i] = el;
   }
   state.pathEls[meta.key] = els;
@@ -2995,6 +3061,7 @@ function processRegion(meta, tj) {
   borderEl.setAttribute('fill', 'none');
   borderEl.setAttribute('stroke', ink);
   borderEl.setAttribute('stroke-width', '1.1');
+  borderEl.setAttribute('vector-effect', 'non-scaling-stroke');
   borderEl.setAttribute('stroke-linejoin', 'round');
   // Use butt caps, not round. Round caps render zero-length arcs as visible
   // circles (mergeArcs can produce degenerate sub-arcs at T-junctions and
@@ -3002,7 +3069,7 @@ function processRegion(meta, tj) {
   // together suppress these "dots inside a district" artifacts.
   borderEl.setAttribute('stroke-linecap', 'butt');
   borderEl.setAttribute('pointer-events', 'none');
-  svgEl.appendChild(borderEl);
+  state.zoomG.appendChild(borderEl);
 
   // Build geographic adjacency, then add bridge edges between disconnected
   // components for the algorithm. The unbridged version is preserved as
@@ -3537,12 +3604,11 @@ function redrawDistrictLabels() {
   let g = document.getElementById('district-labels');
   if (g) g.remove();
   if ((state.labels || 'off') === 'off') return;
-  const svg = document.getElementById('map');
-  if (!svg) return;
+  if (!state.zoomG) return;
   g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
   g.id = 'district-labels';
   g.setAttribute('pointer-events', 'none');
-  svg.appendChild(g);
+  state.zoomG.appendChild(g);
   const ink = getCSSVar('--ink') || '#1d1810';
   const paper = getCSSVar('--paper') || '#f4eccf';
   const isNat = state.active === 'national' && state.regions.national?.assignment;
@@ -3601,7 +3667,7 @@ function redrawIlBorders() {
       el.setAttribute('pointer-events', 'none');
       el.setAttribute('vector-effect', 'non-scaling-stroke');
       r.ilBorderEl = el;
-      document.getElementById('map').appendChild(el);
+      state.zoomG.appendChild(el);
     }
     const ink = getCSSVar('--ink') || '#1d1810';
     el.setAttribute('stroke', ink);
