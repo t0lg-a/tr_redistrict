@@ -243,6 +243,23 @@
     color: var(--muted); margin-top: 4px; line-height: 1.45;
   }
 
+  /* (i) info icons on settings */
+  .info-tip {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 14px; height: 14px; border-radius: 50%;
+    background: transparent; border: 1px solid var(--muted-2);
+    color: var(--muted); font-family: var(--mono);
+    font-size: 9px; font-weight: 700; font-style: italic;
+    margin-left: 6px; cursor: help; user-select: none;
+    vertical-align: 1px; letter-spacing: 0; line-height: 1;
+    transition: background 0.12s, color 0.12s, border-color 0.12s;
+  }
+  .info-tip:hover {
+    background: var(--ink); color: var(--paper); border-color: var(--ink);
+  }
+  .weight-name .info-tip,
+  .label .info-tip { vertical-align: 0; }
+
   /* Scenario list */
   .scn-item {
     border-top: 1px solid var(--rule-soft);
@@ -645,9 +662,19 @@
             <div style="font-family:var(--mono);font-weight:600;font-size:12px;color:var(--ink);font-variant-numeric:tabular-nums" id="tol-label">±10.0%</div>
           </div>
           <div style="margin-top:12px">
-            <div class="label">Annealing temperature</div>
-            <input class="nin" type="number" id="in-temp" value="0" min="0" max="10000" step="10" title="T=0 greedy ReCom. T>0 = simulated annealing.">
+            <div class="label">Annealing temperature (T₀)</div>
+            <input class="nin" type="number" id="in-temp" value="0" min="0" max="10000" step="10">
             <div class="hint">T=0 greedy. Higher = more exploration.</div>
+          </div>
+          <div style="margin-top:12px">
+            <div class="label">End temperature (T_end)</div>
+            <input class="nin" type="number" id="in-Tend" value="0" min="0" max="10000" step="1">
+            <div class="hint">Floor for annealing. T cools from T₀ to T_end.</div>
+          </div>
+          <div style="margin-top:12px">
+            <div class="label">Cooling rate (exp)</div>
+            <input class="nin" type="number" id="in-cooling" value="0.9995" min="0.9" max="0.99999" step="0.0001">
+            <div class="hint">Only used when schedule = Exponential.</div>
           </div>
           <div style="margin-top:12px">
             <div class="label">Polish flips per ReCom step</div>
@@ -688,6 +715,19 @@
             <input type="range" id="in-throttle" min="0" max="500" step="10" value="0">
             <div style="font-family:var(--mono);font-size:11px;color:var(--muted);margin-top:2px"><span id="throttle-val">0</span>ms</div>
           </div>
+          <div style="margin-top:12px">
+            <div class="label">Max tree retries / ReCom step</div>
+            <input class="nin" type="number" id="in-retries" value="50" min="5" max="500" step="5">
+          </div>
+          <div style="margin-top:12px">
+            <div class="label">Acceptance rule</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px">
+              <button class="toggle-btn active" data-accept="metropolis">Metropolis</button>
+              <button class="toggle-btn" data-accept="greedy">Greedy</button>
+              <button class="toggle-btn" data-accept="threshold">Threshold</button>
+            </div>
+            <div class="hint">Metropolis = standard simulated annealing. Greedy = never accept uphill moves. Threshold = accept anything within T of current.</div>
+          </div>
           <button class="cmd" id="btn-step" style="margin-top:12px">Step (1 iter)</button>
         </div>
 
@@ -722,6 +762,20 @@
               <button class="toggle-btn" data-stopon="time">Off</button>
             </div>
           </div>
+          <div style="margin-top:10px">
+            <div class="label">Stop when |EffGap| ≤ %</div>
+            <div style="display:grid;grid-template-columns:1fr auto;gap:6px">
+              <input class="nin" type="number" id="stop-eg" value="2" min="0" max="15" step="0.5">
+              <button class="toggle-btn" data-stopon="eg">Off</button>
+            </div>
+          </div>
+          <div style="margin-top:10px">
+            <div class="label">Plateau: no improve in N iters</div>
+            <div style="display:grid;grid-template-columns:1fr auto;gap:6px">
+              <input class="nin" type="number" id="stop-plateau" value="500" min="50" max="50000" step="50">
+              <button class="toggle-btn" data-stopon="plateau">Off</button>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -750,9 +804,14 @@
             <input type="range" data-weight="cutEdges" min="0" max="10" step="0.5" value="1">
           </div>
           <div class="weight-row" data-key="popDev">
-            <span class="weight-name">Population balance</span>
+            <span class="weight-name">Population balance (max-dev)</span>
             <span class="weight-val">50</span>
             <input type="range" data-weight="popDev" min="0" max="100" step="5" value="50">
+          </div>
+          <div class="weight-row zero" data-key="popVar">
+            <span class="weight-name">Population variance (all districts)</span>
+            <span class="weight-val">0</span>
+            <input type="range" data-weight="popVar" min="0" max="50" step="1" value="0">
           </div>
           <div class="weight-row zero" data-key="effGap">
             <span class="weight-name">Efficiency gap</span>
@@ -840,6 +899,19 @@
               <button class="toggle-btn" data-ilbord="soft">Soft</button>
               <button class="toggle-btn" data-ilbord="bold">Bold</button>
             </div>
+          </div>
+          <div style="margin-top:12px">
+            <div class="label">Background</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px">
+              <button class="toggle-btn active" data-bg="paper">Paper</button>
+              <button class="toggle-btn" data-bg="popheat">Pop heat</button>
+              <button class="toggle-btn" data-bg="iltint">İl tint</button>
+            </div>
+          </div>
+          <div class="weight-row" style="margin-top:12px">
+            <span class="weight-name">Label font size</span>
+            <span class="weight-val" id="map-labelsize-val">11</span>
+            <input type="range" id="map-labelsize" min="8" max="24" step="1" value="11">
           </div>
         </div>
 
@@ -1108,7 +1180,8 @@ function bipart(R, nodeArr, k, baseId, assignment, tol, rng, statusCb, totalK, d
   let nStrict = 0;
   let bestFallback = { node: -1, err: Infinity, childHead: null, childNext: null };
 
-  for (let attempt = 0; attempt < 40; attempt++) {
+  const maxRetries = S.maxRetries || 40;
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
     if (aborted) return false;
     const tree = randomSpanningTree(R.adj, nodeArr, inSet, R.N, rng);
     if (!tree) continue;
@@ -1274,6 +1347,17 @@ function scoreFromState(S, weights) {
       let v = 0; for (let d = 0; d < k; d++) { const o = shares[d] - mean; v += o * o; }
       s += weights.packCrack * (v / k) * 10000;  // variance of shares, scaled
     }
+  }
+  if (weights.popVar) {
+    // Average squared dev across all districts (vs popDev which uses max).
+    const k = S.k;
+    const ideal = S.R.totalPop / k;
+    let sv = 0;
+    for (let d = 0; d < k; d++) {
+      const o = (S.pops[d] - ideal) / ideal;
+      sv += o * o;
+    }
+    s += weights.popVar * (sv / k) * 100 * 100;
   }
   if (weights.ilSplits) s += weights.ilSplits * S.ilSplits;
   return s;
@@ -1501,11 +1585,28 @@ function recomStepInc(S, tol, weights, T, rng) {
       proposed += weights.packCrack * (v / k) * 10000;
     }
   }
+  if (weights.popVar) {
+    const k = S.k;
+    const ideal = S.R.totalPop / k;
+    let sv = 0;
+    for (let d = 0; d < k; d++) {
+      const p = (d === d1) ? newPop_d1 : (d === d2) ? newPop_d2 : S.pops[d];
+      const o = (p - ideal) / ideal;
+      sv += o * o;
+    }
+    proposed += weights.popVar * (sv / k) * 100 * 100;
+  }
   if (weights.ilSplits) proposed += weights.ilSplits * newIlSplits;
 
   // ── Accept / reject
   const dE = proposed - S.score;
-  const accept = dE <= 0 || (T > 0 && rng() < Math.exp(-dE / T));
+  // Acceptance rule: metropolis (default Boltzmann), greedy (only downhill),
+  // or threshold (accept anything within T of current).
+  const rule = S.acceptRule || 'metropolis';
+  let accept;
+  if (rule === 'greedy')        accept = dE <= 0;
+  else if (rule === 'threshold') accept = dE <= T;
+  else                          accept = dE <= 0 || (T > 0 && rng() < Math.exp(-dE / T));
 
   if (!accept) {
     // Roll back marker buffers
@@ -1744,6 +1845,16 @@ function flipStep(S, weights, rng) {
         newScore += weights.packCrack * (v / kk) * 10000;
       }
     }
+    if (weights.popVar) {
+      const ideal = R.totalPop / kk;
+      let sv = 0;
+      for (let d = 0; d < kk; d++) {
+        const p = (d === dFrom) ? newPopFrom : (d === dTo) ? newPopTo : S.pops[d];
+        const o = (p - ideal) / ideal;
+        sv += o * o;
+      }
+      newScore += weights.popVar * (sv / kk) * 100 * 100;
+    }
     if (weights.ilSplits) newScore += weights.ilSplits * newIlSplits;
 
     if (newScore >= S.score) continue;  // greedy reject
@@ -1902,17 +2013,24 @@ self.onmessage = (e) => {
     let lastPost = 0;
     const totalIters = m.iters;
     const T0 = m.T0 || 0;
+    const Tend = m.Tend || 0;
+    const coolRate = (typeof m.coolRate === 'number' && m.coolRate > 0 && m.coolRate < 1) ? m.coolRate : 0.9995;
     const polishFlips = (m.polishFlips != null) ? (m.polishFlips | 0) : 3;
     const anneal = m.anneal || 'linear';
+    const accept = m.accept || 'metropolis';  // exposed to recomStepInc via S.acceptRule
     const throttleMs = +m.throttleMs || 0;
     const seenChanged = new Uint8Array(R.N);
     const pendingNodes = [];
+    if (m.maxRetries) S.maxRetries = m.maxRetries | 0;
+    S.acceptRule = accept;
 
     const tForIter = (i) => {
-      if (T0 === 0) return 0;
+      if (T0 === 0 && Tend === 0) return 0;
       if (anneal === 'const') return T0;
-      if (anneal === 'exp')   return T0 * Math.pow(0.9995, i);
-      return T0 * (1 - i / Math.max(1, totalIters));  // 'linear'
+      if (anneal === 'exp')   return Math.max(Tend, T0 * Math.pow(coolRate, i));
+      // linear interpolation from T0 down to Tend across totalIters
+      const f = i / Math.max(1, totalIters);
+      return T0 * (1 - f) + Tend * f;
     };
 
     const tick = () => {
@@ -2008,10 +2126,15 @@ const state = {
   weights: { cutEdges: 1, popDev: 50, meanMedian: 0, effGap: 0, competitiveness: 0, partisanAdv: 0, lopsidedWins: 0, packCrack: 0, ilSplits: 0 },
   // Run-time extras driven from the Advanced algorithm + Stop conditions panels.
   anneal: 'linear',         // 'linear' | 'exp' | 'const'
+  accept: 'metropolis',     // 'metropolis' | 'greedy' | 'threshold'
+  initStrategy: 'recursive',
   autoPolish: true,
   throttleMs: 0,
-  stop: { popdev: false, ikt: false, muh: false, time: false },
+  bg: 'paper',
+  labelSize: 11,
+  stop: { popdev: false, ikt: false, muh: false, time: false, eg: false, plateau: false },
   runStartTs: 0,
+  _plateau: { bestSeen: Infinity, lastImproveIter: 0 },
   tol: 0.10,
   scoreHist: [],
   colorMode: 'districts',
@@ -2293,6 +2416,26 @@ function checkStopConditions() {
     const nat = state.regions.national;
     if (nat?.metrics?.muhSeats >= target) return 'muh';
   }
+  if (state.stop.eg) {
+    const target = +$('stop-eg').value || 0;
+    for (const key of [state.active, ...REGIONS.map(m => m.key)]) {
+      const r = state.regions[key];
+      if (state.running.has(key) && r?.metrics?.effGap != null
+          && Math.abs(r.metrics.effGap) * 100 <= target) return 'eg';
+    }
+  }
+  if (state.stop.plateau) {
+    const limit = +$('stop-plateau').value || 0;
+    const r = state.regions[state.active];
+    if (r?.bestScore != null && Number.isFinite(r.bestScore)) {
+      if (r.bestScore < state._plateau.bestSeen - 1e-6) {
+        state._plateau.bestSeen = r.bestScore;
+        state._plateau.lastImproveIter = r.iter || 0;
+      } else if ((r.iter || 0) - state._plateau.lastImproveIter >= limit) {
+        return 'plateau';
+      }
+    }
+  }
   return null;
 }
 
@@ -2350,6 +2493,100 @@ document.querySelectorAll('[data-ilbord]').forEach(b => {
     redrawIlBorders();
   };
 });
+
+// Acceptance rule picker (Metropolis / Greedy / Threshold) — passed to worker.
+document.querySelectorAll('[data-accept]').forEach(b => {
+  b.onclick = () => {
+    state.accept = b.dataset.accept;
+    document.querySelectorAll('[data-accept]').forEach(x => x.classList.toggle('active', x === b));
+  };
+});
+
+// Background mode (Paper / Pop heat / İl tint) — paints behind the map.
+document.querySelectorAll('[data-bg]').forEach(b => {
+  b.onclick = () => {
+    state.bg = b.dataset.bg;
+    document.querySelectorAll('[data-bg]').forEach(x => x.classList.toggle('active', x === b));
+    applyBackground();
+  };
+});
+function applyBackground() { recolorAll(); }
+
+// Label font size — passed to redrawDistrictLabels.
+$('map-labelsize').addEventListener('input', () => {
+  state.labelSize = +$('map-labelsize').value;
+  $('map-labelsize-val').textContent = state.labelSize;
+  redrawDistrictLabels();
+});
+
+// ── (i) info tooltips — every setting gets a small circle-i icon. ────────
+const HELP_TIPS = {
+  // Run parameters
+  'in-iters': 'ReCom moves to attempt. For aggressive gerrymandering or large k=600 nationally you want 20K-100K — each move only shifts a few districts.',
+  'tol-track': 'Population tolerance: maximum allowed deviation from ideal district pop. Moves outside tolerance are rejected outright.',
+  'in-temp': 'Initial annealing temperature T₀. T=0 → pure greedy (only accept improving moves). T>0 enables simulated annealing — uphill moves accepted with probability exp(-ΔE/T).',
+  'in-Tend': 'Final temperature T_end. T cools from T₀ down to T_end across the run. T_end > 0 prevents the optimizer from freezing at a local optimum.',
+  'in-cooling': 'Exponential cooling rate. T_{n+1} = T_n × rate. Closer to 1 = slower cooling. Only used when schedule = Exponential.',
+  'in-flips': 'Number of single-mahalle flip moves before each ReCom step in Polish mode. Higher = more fine-grained popDev work but slower.',
+  'in-seed': 'Seed for the worker PRNG. Lock to reproduce a run exactly with the same starting conditions.',
+  // Advanced
+  'in-restarts': 'Multi-restart: run the optimization N times with different seeds; keep the best result. Hugely improves quality at N≥5 at the cost of N× wall time.',
+  'in-throttle': 'Delay between worker batches. 0 = full speed; higher = slow enough to watch the optimization frame-by-frame.',
+  'in-retries': 'How many random spanning-tree retries the ReCom step does before giving up. Higher = more flexibility in finding balanced cuts but slower per step.',
+  // Stop conditions
+  'stop-popdev': "Abort when the worst district's pop deviation drops at or below this %.",
+  'stop-ikt': 'Abort when İktidar seat count reaches this number.',
+  'stop-muh': 'Abort when Muhalefet seat count reaches this number.',
+  'stop-time': 'Hard wall-clock stop after this many seconds.',
+  'stop-eg': 'Abort when |Efficiency Gap| drops at or below this %. 2% is the partisan-fairness threshold.',
+  'stop-plateau': 'Abort after this many iterations with no score improvement (early termination on plateau).',
+  // Map appearance
+  'map-distwidth': 'Width of the district boundary stroke in pixels.',
+  'map-mahopacity': 'Opacity of the fine per-mahalle border lines.',
+  'map-tossupband': 'Half-width of the neutral / yellow zone around 50/50 in partisan color mode.',
+  'map-labelsize': 'Font size for district labels (when enabled).',
+  // Scenarios
+  'scn-name': 'Optional name for the saved scenario. Empty = auto-generated from active region + timestamp.',
+};
+const WEIGHT_TIPS = {
+  cutEdges:        'Compactness via cut-edge count. Lower = tighter, more compact districts. Default 1 is comparable to other objectives.',
+  popDev:          'Population balance via MAX deviation: max_d |pop_d − ideal|/ideal squared. Penalizes the worst district only.',
+  popVar:          'Population balance via AVERAGE squared deviation across ALL districts. Pushes every district toward ideal, not just the worst.',
+  effGap:          'Efficiency gap: wasted-vote asymmetry between parties. POSITIVE weight minimizes |gap| (partisan fairness). NEGATIVE weight maximizes |gap| (worst-case partisan bias).',
+  competitiveness: 'Competitiveness: penalize landslide margins. Higher = more close races, fewer safe seats.',
+  meanMedian:      'Mean-Median gap: |mean(share) − median(share)|. A standard partisan-bias indicator. Lower = less skewed map.',
+  ilSplits:        'Province (İl) splits: number of il boundaries crossed by district boundaries. Higher weight = districts respect province lines.',
+  partisanAdv:     'Partisan tilt (SIGNED). Positive = gerrymander toward İktidar (minimize Muh seats). Negative = gerrymander toward Muhalefet. Internally ×10 in the score.',
+  lopsidedWins:    'Lopsided-wins penalty: Σ_d (share_d − 0.5)². Penalizes wasted votes / landslide wins; rewards thin winning margins.',
+  packCrack:       'Pack/crack variance: variance of share around the regional mean. Penalizing this pushes toward uniform districts.',
+};
+function decorateInfoTips() {
+  const mkIcon = (tip) => {
+    const s = document.createElement('span');
+    s.className = 'info-tip';
+    s.title = tip;
+    s.textContent = 'i';
+    return s;
+  };
+  for (const [id, tip] of Object.entries(HELP_TIPS)) {
+    const el = document.getElementById(id);
+    if (!el) continue;
+    let p = el.parentElement, label = null;
+    while (p && !label) {
+      label = p.querySelector(':scope > .label');
+      if (!label) p = p.parentElement;
+    }
+    if (label && !label.querySelector('.info-tip')) label.appendChild(mkIcon(tip));
+  }
+  for (const [k, tip] of Object.entries(WEIGHT_TIPS)) {
+    const slider = document.querySelector(`[data-weight="${k}"]`);
+    if (!slider) continue;
+    const row = slider.closest('.weight-row');
+    const name = row?.querySelector('.weight-name');
+    if (name && !name.querySelector('.info-tip')) name.appendChild(mkIcon(tip));
+  }
+}
+decorateInfoTips();
 
 // Map appearance — live update of stroke width, mahalle opacity, tossup band.
 // These rewrite SVG attributes directly (cheap) and tweak shared state used
@@ -3198,6 +3435,7 @@ function runRegion(key) {
   r.status = 'running'; r.scoreHist = []; r.iter = 0; r.bestScore = Infinity; r.k = k;
   state.running.add(key);
   state.runStartTs = Date.now();
+  state._plateau = { bestSeen: Infinity, lastImproveIter: 0 };
   if (key === state.active) state.scoreHist = [];
   renderRegionList(); updateButtons();
   state.workers[key].postMessage({
@@ -3208,6 +3446,10 @@ function runRegion(key) {
     T0: +$('in-temp').value || 0,
     polishFlips: +$('in-flips').value || 3,
     anneal: state.anneal, throttleMs: state.throttleMs,
+    Tend: +$('in-Tend').value || 0,
+    coolRate: +$('in-cooling').value || 0.9995,
+    accept: state.accept,
+    maxRetries: +$('in-retries').value || 50,
   });
 }
 
@@ -3231,6 +3473,10 @@ function startPolish() {
     T0: +$('in-temp').value || 0,
     polishFlips: +$('in-flips').value || 3,
     anneal: state.anneal, throttleMs: state.throttleMs,
+    Tend: +$('in-Tend').value || 0,
+    coolRate: +$('in-cooling').value || 0.9995,
+    accept: state.accept,
+    maxRetries: +$('in-retries').value || 50,
     polish: true,
   });
 }
@@ -3586,14 +3832,37 @@ function redrawDistrictBorders(key, live) {
   r.borderEl.parentNode.appendChild(r.borderEl);
 }
 function recolorAll() {
+  // Background overrides everything when not 'paper' — show
+  // population heatmap or province (il) tint instead of the assignment.
+  if (state.bg && state.bg !== 'paper') { applyBackgroundPaint(); return; }
   // National mode: paint every regional path by the global national
-  // district assignment. Regional district borders get cleared because
-  // they'd be misleading (national districts can span regions).
+  // district assignment.
   if (state.active === 'national' && state.regions.national?.assignment) {
     recolorNational();
     return;
   }
   for (const meta of REGIONS) recolorRegion(meta.key);
+}
+function applyBackgroundPaint() {
+  for (const meta of REGIONS) {
+    const r = state.regions[meta.key]; if (!r) continue;
+    const els = state.pathEls[meta.key]; if (!els) continue;
+    if (state.bg === 'popheat') {
+      let maxP = 0;
+      for (let i = 0; i < r.N; i++) if (r.pop[i] > maxP) maxP = r.pop[i];
+      for (let i = 0; i < r.N; i++) {
+        const t = Math.min(1, r.pop[i] / Math.max(1, maxP * 0.5));
+        const grey = Math.round(245 - 165 * t);
+        els[i].setAttribute('fill', `rgb(${grey},${Math.max(grey - 10, 60)},${Math.max(grey - 30, 40)})`);
+      }
+    } else if (state.bg === 'iltint') {
+      for (let i = 0; i < r.N; i++) {
+        const ilCode = r.il[i] || 0;
+        const h = (ilCode * 89) % 360;
+        els[i].setAttribute('fill', `hsl(${h.toFixed(1)},35%,80%)`);
+      }
+    }
+  }
 }
 
 function recolorNational() {
