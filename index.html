@@ -1218,8 +1218,7 @@ function bipart(R, nodeArr, k, baseId, assignment, tol, rng, statusCb, totalK, d
   let nStrict = 0;
   let bestFallback = { node: -1, err: Infinity, childHead: null, childNext: null };
 
-  const maxRetries = S.maxRetries || 40;
-  for (let attempt = 0; attempt < maxRetries; attempt++) {
+  for (let attempt = 0; attempt < workerMaxRetries; attempt++) {
     if (aborted) return false;
     const tree = randomSpanningTree(R.adj, nodeArr, inSet, R.N, rng);
     if (!tree) continue;
@@ -1977,6 +1976,8 @@ function polishStep(S, tol, weights, rng, scratchScore, polishFlips) {
 // without losing the assignment they already optimized.
 let savedState = null;
 let savedKey = null;
+// Worker-scoped knobs set on each run; read by bipart() / recomStepInc().
+let workerMaxRetries = 40;
 
 self.onmessage = (e) => {
   const m = e.data;
@@ -2007,6 +2008,8 @@ self.onmessage = (e) => {
     const rng = mkRng(m.seed | 0);
     // Polish weights: only popDev matters during flip phase
     const wPolish = { cutEdges: 0, popDev: 1, ilSplits: 0, meanMedian: 0, effGap: 0, competitiveness: 0, partisanAdv: 0, lopsidedWins: 0, packCrack: 0 };
+    // Set worker-scoped knobs BEFORE initialPartition so bipart picks them up.
+    workerMaxRetries = (m.maxRetries | 0) || 40;
 
     let S;
     if (m.type === 'continue') {
@@ -2059,8 +2062,7 @@ self.onmessage = (e) => {
     const throttleMs = +m.throttleMs || 0;
     const seenChanged = new Uint8Array(R.N);
     const pendingNodes = [];
-    if (m.maxRetries) S.maxRetries = m.maxRetries | 0;
-    S.acceptRule = accept;
+    S.acceptRule = accept;  // read by recomStepInc
 
     const tForIter = (i) => {
       if (T0 === 0 && Tend === 0) return 0;
