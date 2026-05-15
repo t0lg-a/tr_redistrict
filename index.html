@@ -3788,17 +3788,12 @@ function populateIlSelect() {
   }
   sel.disabled = false;
 }
-$('il-select').addEventListener('change', () => {
-  const ilCode = +$('il-select').value || 0;
-  if (!ilCode) {
-    $('il-info').textContent = 'Pick an il to see population / mahalle count.';
-    $('btn-runil').disabled = true;
-    return;
-  }
+// Compute static il facts (pop, max mahalle, vote totals) — only on
+// il-select change, not on k change.
+function readIlFacts(ilCode) {
   const name = state.ilNames?.get(ilCode) || ('İl ' + ilCode);
   const pop = state.ilPops?.get(ilCode) || 0;
   const cnt = state.ilCounts?.get(ilCode) || 0;
-  // Find max mahalle pop + vote totals in this il.
   let maxMah = 0, ikt = 0, muh = 0;
   for (const meta of REGIONS) {
     const r = state.regions[meta.key]; if (!r) continue;
@@ -3808,7 +3803,44 @@ $('il-select').addEventListener('change', () => {
       ikt += r.ikt[i]; muh += r.muh[i];
     }
   }
-  // Auto-suggest seat count by Turkish belediye meclisi tiering (rough).
+  return { ilCode, name, pop, cnt, maxMah, ikt, muh };
+}
+// Render the il info line using whatever k is currently in the input.
+// Does NOT touch the il-k input — safe to call from il-k's own change handler.
+function refreshIlInfo() {
+  const facts = state._ilFacts;
+  if (!facts) {
+    $('il-info').textContent = 'Pick an il to see population / mahalle count.';
+    return;
+  }
+  const k = Math.max(2, +$('il-k').value | 0 || 40);
+  const ideal = facts.pop / k;
+  const ratio = ideal > 0 ? (facts.maxMah / ideal).toFixed(2) : '—';
+  const tot = facts.ikt + facts.muh;
+  const iktPct = tot > 0 ? (facts.ikt / tot * 100) : 0;
+  const muhPct = 100 - iktPct;
+  const fairIkt = Math.round(iktPct / 100 * k);
+  const fairMuh = k - fairIkt;
+  state._ilSelected = { ...facts, iktPct, muhPct, fairIkt, fairMuh };
+  $('il-info').innerHTML = `
+    <div><b>${facts.name}</b> · ${(facts.pop / 1e6).toFixed(2)}M pop · ${facts.cnt} mh</div>
+    <div>Max mahalle = ${facts.maxMah.toLocaleString('tr-TR')} (${ratio}× ideal at k=${k})</div>
+    <div>Vote split: İkt <b>${iktPct.toFixed(1)}%</b> / Muh <b>${muhPct.toFixed(1)}%</b></div>
+    <div>Proportional target at k=${k}: İkt <b>${fairIkt}</b> / Muh <b>${fairMuh}</b></div>`;
+}
+$('il-select').addEventListener('change', () => {
+  const ilCode = +$('il-select').value || 0;
+  if (!ilCode) {
+    state._ilFacts = null;
+    refreshIlInfo();
+    $('btn-runil').disabled = true;
+    $('btn-runil-pr').disabled = true;
+    return;
+  }
+  state._ilFacts = readIlFacts(ilCode);
+  // Auto-suggest k from population tier — only when picking an il, never
+  // again. User can override afterward and it will stick.
+  const pop = state._ilFacts.pop;
   let suggestK = 25;
   if (pop > 5e6)      suggestK = 200;
   else if (pop > 1e6) suggestK = 75;
@@ -3818,20 +3850,7 @@ $('il-select').addEventListener('change', () => {
   else if (pop > 5e4) suggestK = 25;
   else                suggestK = 15;
   $('il-k').value = suggestK;
-  const k = suggestK;
-  const ideal = pop / k;
-  const ratio = ideal > 0 ? (maxMah / ideal).toFixed(2) : '—';
-  const tot = ikt + muh;
-  const iktPct = tot > 0 ? (ikt / tot * 100) : 0;
-  const muhPct = 100 - iktPct;
-  const fairIkt = Math.round(iktPct / 100 * k);
-  const fairMuh = k - fairIkt;
-  state._ilSelected = { ilCode, pop, maxMah, ikt, muh, iktPct, muhPct, fairIkt, fairMuh };
-  $('il-info').innerHTML = `
-    <div><b>${name}</b> · ${(pop / 1e6).toFixed(2)}M pop · ${cnt} mh</div>
-    <div>Max mahalle = ${maxMah.toLocaleString('tr-TR')} (${ratio}× ideal at k=${k})</div>
-    <div>Vote split: İkt <b>${iktPct.toFixed(1)}%</b> / Muh <b>${muhPct.toFixed(1)}%</b></div>
-    <div>Proportional target at k=${k}: İkt <b>${fairIkt}</b> / Muh <b>${fairMuh}</b></div>`;
+  refreshIlInfo();
   $('btn-runil').disabled = false;
   $('btn-runil-pr').disabled = false;
 });
@@ -3865,10 +3884,8 @@ $('btn-runil-pr').onclick = () => {
   if ((+$('in-temp').value  || 0) < 100)   $('in-temp').value  = 100;
   startRunIl();
 };
-$('il-k').addEventListener('change', () => {
-  // Recompute info line when k changes (ideal pop depends on k)
-  const ev = new Event('change'); $('il-select').dispatchEvent(ev);
-});
+$('il-k').addEventListener('input', refreshIlInfo);
+$('il-k').addEventListener('change', refreshIlInfo);
 
 // Per-district population list, refreshed on tick/done in il mode.
 function renderIlDistList() {
