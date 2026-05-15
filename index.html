@@ -542,6 +542,68 @@
       </div>
 
       <div class="panel">
+        <h3>Advanced algorithm</h3>
+        <div>
+          <div class="label">Annealing schedule</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px">
+            <button class="toggle-btn active" data-anneal="linear" title="T = T0 · (1 − iter/totalIters)">Linear</button>
+            <button class="toggle-btn" data-anneal="exp" title="T = T0 · 0.999^iter">Exponential</button>
+            <button class="toggle-btn" data-anneal="const" title="T = T0 always (constant)">Constant</button>
+          </div>
+        </div>
+        <div style="margin-top:12px">
+          <div class="label">Multi-restart (best of N)</div>
+          <input class="nin" type="number" id="in-restarts" value="1" min="1" max="50" step="1" title="Run the optimization N times with different seeds; keep the best result. Hugely improves quality at N≥5 at the cost of N× wall time.">
+        </div>
+        <div style="margin-top:12px">
+          <div class="label">Auto-polish after run</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px">
+            <button class="toggle-btn" data-autopolish="off">Off</button>
+            <button class="toggle-btn active" data-autopolish="on">On</button>
+          </div>
+        </div>
+        <div style="margin-top:12px">
+          <div class="label">Speed throttle (ms / batch)</div>
+          <input type="range" id="in-throttle" min="0" max="500" step="10" value="0" title="Delay between worker batches. 0 = full speed; higher = slow enough to watch the optimization.">
+          <div style="font-family:var(--mono);font-size:11px;color:var(--muted);margin-top:2px"><span id="throttle-val">0</span>ms</div>
+        </div>
+        <button class="cmd" id="btn-step" style="margin-top:12px" title="Run a single ReCom step on the active region (or polish-step if active region has an assignment).">Step (1 iter)</button>
+      </div>
+
+      <div class="panel">
+        <h3>Stop conditions</h3>
+        <div class="hint" style="margin-top:0">The run aborts as soon as ANY enabled condition is met.</div>
+        <div style="margin-top:10px">
+          <div class="label">Stop when popDev ≤</div>
+          <div style="display:grid;grid-template-columns:1fr auto;gap:6px">
+            <input class="nin" type="number" id="stop-popdev" value="0.5" min="0" max="100" step="0.1">
+            <button class="toggle-btn" data-stopon="popdev">Off</button>
+          </div>
+        </div>
+        <div style="margin-top:10px">
+          <div class="label">Stop when İkt seats ≥</div>
+          <div style="display:grid;grid-template-columns:1fr auto;gap:6px">
+            <input class="nin" type="number" id="stop-ikt" value="350" min="1" max="800" step="1">
+            <button class="toggle-btn" data-stopon="ikt">Off</button>
+          </div>
+        </div>
+        <div style="margin-top:10px">
+          <div class="label">Stop when Muh seats ≥</div>
+          <div style="display:grid;grid-template-columns:1fr auto;gap:6px">
+            <input class="nin" type="number" id="stop-muh" value="350" min="1" max="800" step="1">
+            <button class="toggle-btn" data-stopon="muh">Off</button>
+          </div>
+        </div>
+        <div style="margin-top:10px">
+          <div class="label">Stop after N seconds</div>
+          <div style="display:grid;grid-template-columns:1fr auto;gap:6px">
+            <input class="nin" type="number" id="stop-time" value="60" min="5" max="3600" step="5">
+            <button class="toggle-btn" data-stopon="time">Off</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
         <h3>Optimization</h3>
         <div class="label">Presets</div>
         <div class="presets">
@@ -594,6 +656,17 @@
           <span class="weight-val">0</span>
           <input type="range" data-weight="partisanAdv" min="-100" max="100" step="1" value="0" title="Signed weight, internally ×10 in the score. Positive = gerrymander toward İktidar. Negative = toward Muhalefet. To actually flip seats: pair with low Compactness weight + more iterations.">
         </div>
+        <div class="weight-row zero" data-key="lopsidedWins" title="Penalize landslide wins. Sum_d max(0, share_d − 0.5)² when muh wins, mirrored when ikt wins — high = more efficient vote-spreading per party.">
+          <span class="weight-name">Lopsided-wins penalty</span>
+          <span class="weight-val">0</span>
+          <input type="range" data-weight="lopsidedWins" min="0" max="50" step="1" value="0">
+        </div>
+        <div class="weight-row zero" data-key="packCrack" title="Variance of share across districts. High variance = packing+cracking pattern. Penalizing variance pushes toward uniform districts; rewarding (use partisan tilt instead) amplifies gerrymanders.">
+          <span class="weight-name">Pack / crack variance</span>
+          <span class="weight-val">0</span>
+          <input type="range" data-weight="packCrack" min="0" max="50" step="1" value="0">
+        </div>
+        <button class="toggle-btn" id="btn-reset-weights" style="margin-top:10px;width:100%" title="Reset all weights to the bare-minimum baseline (cutEdges + popDev only).">Reset all weights</button>
       </div>
 
       <div class="panel">
@@ -617,6 +690,31 @@
           <span class="weight-name">Tossup band</span>
           <span class="weight-val" id="map-tossupband-val">±3%</span>
           <input type="range" id="map-tossupband" min="0" max="15" step="0.5" value="3">
+        </div>
+        <div style="margin-top:12px">
+          <div class="label">Palette (Districts mode)</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px">
+            <button class="toggle-btn active" data-palette="golden" title="Golden-angle hues. Default.">Golden</button>
+            <button class="toggle-btn" data-palette="spectral" title="Spectral rainbow.">Spectral</button>
+            <button class="toggle-btn" data-palette="categorical" title="d3.schemeCategory10 cycled.">Cat10</button>
+          </div>
+        </div>
+        <div style="margin-top:12px">
+          <div class="label">District labels</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:4px">
+            <button class="toggle-btn active" data-labels="off">Off</button>
+            <button class="toggle-btn" data-labels="num">#</button>
+            <button class="toggle-btn" data-labels="share">Share</button>
+            <button class="toggle-btn" data-labels="margin">Margin</button>
+          </div>
+        </div>
+        <div style="margin-top:12px">
+          <div class="label">İl (province) borders</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px">
+            <button class="toggle-btn active" data-ilbord="off">Off</button>
+            <button class="toggle-btn" data-ilbord="soft">Soft</button>
+            <button class="toggle-btn" data-ilbord="bold">Bold</button>
+          </div>
         </div>
       </div>
 
@@ -1089,9 +1187,9 @@ function scoreFromState(S, weights) {
     }
     s += weights.popDev * (maxDev * 100) * (maxDev * 100);
   }
-  if (weights.meanMedian || weights.effGap || weights.competitiveness || weights.partisanAdv) {
+  if (weights.meanMedian || weights.effGap || weights.competitiveness || weights.partisanAdv || weights.lopsidedWins || weights.packCrack) {
     const k = S.k;
-    let mean = 0, wd = 0, wr = 0, total = 0, marginSum = 0, muhWins = 0;
+    let mean = 0, wd = 0, wr = 0, total = 0, marginSum = 0, muhWins = 0, lopsided = 0;
     const shares = new Float64Array(k);
     for (let d = 0; d < k; d++) {
       const t = S.muhs[d] + S.ikts[d];
@@ -1103,7 +1201,8 @@ function scoreFromState(S, weights) {
         total += t;
       }
       if (weights.competitiveness) marginSum += 2 * Math.abs(sh - 0.5);
-      if (weights.partisanAdv) muhWins += 1 / (1 + Math.exp(-20 * (sh - 0.5)));
+      if (weights.partisanAdv)     muhWins  += 1 / (1 + Math.exp(-20 * (sh - 0.5)));
+      if (weights.lopsidedWins) { const o = sh - 0.5; lopsided += o * o; }  // wasted-vote spread
     }
     mean /= k;
     if (weights.meanMedian) {
@@ -1120,12 +1219,11 @@ function scoreFromState(S, weights) {
       const mm = (marginSum / k) * 100;
       s += weights.competitiveness * mm * mm;
     }
-    if (weights.partisanAdv) {
-      // Signed term. Internal ×10 so the slider value is comparable in
-      // magnitude to cutEdges*1 (which dominates the score on a 51K-node
-      // national graph). Positive = gerrymander toward İktidar (minimize
-      // muh wins); negative = toward Muhalefet.
-      s += weights.partisanAdv * 10 * muhWins;
+    if (weights.partisanAdv) s += weights.partisanAdv * 10 * muhWins;
+    if (weights.lopsidedWins) s += weights.lopsidedWins * lopsided * 10000;  // (share gap)² is small; scale up
+    if (weights.packCrack) {
+      let v = 0; for (let d = 0; d < k; d++) { const o = shares[d] - mean; v += o * o; }
+      s += weights.packCrack * (v / k) * 10000;  // variance of shares, scaled
     }
   }
   if (weights.ilSplits) s += weights.ilSplits * S.ilSplits;
@@ -1313,9 +1411,9 @@ function recomStepInc(S, tol, weights, T, rng) {
     }
     proposed += weights.popDev * (maxDev * 100) * (maxDev * 100);
   }
-  if (weights.meanMedian || weights.effGap || weights.competitiveness || weights.partisanAdv) {
+  if (weights.meanMedian || weights.effGap || weights.competitiveness || weights.partisanAdv || weights.lopsidedWins || weights.packCrack) {
     const k = S.k;
-    let mean = 0, wdv = 0, wrv = 0, total = 0, marginSum = 0, muhWins = 0;
+    let mean = 0, wdv = 0, wrv = 0, total = 0, marginSum = 0, muhWins = 0, lopsided = 0;
     const shares = new Float64Array(k);
     for (let d = 0; d < k; d++) {
       const muh = (d === d1) ? newMuh_d1 : (d === d2) ? newMuh_d2 : S.muhs[d];
@@ -1330,6 +1428,7 @@ function recomStepInc(S, tol, weights, T, rng) {
       }
       if (weights.competitiveness) marginSum += 2 * Math.abs(sh - 0.5);
       if (weights.partisanAdv) muhWins += 1 / (1 + Math.exp(-20 * (sh - 0.5)));
+      if (weights.lopsidedWins) { const o = sh - 0.5; lopsided += o * o; }
     }
     mean /= k;
     if (weights.meanMedian) {
@@ -1347,6 +1446,11 @@ function recomStepInc(S, tol, weights, T, rng) {
       proposed += weights.competitiveness * mm * mm;
     }
     if (weights.partisanAdv) proposed += weights.partisanAdv * 10 * muhWins;
+    if (weights.lopsidedWins) proposed += weights.lopsidedWins * lopsided * 10000;
+    if (weights.packCrack) {
+      let v = 0; for (let d = 0; d < k; d++) { const o = shares[d] - mean; v += o * o; }
+      proposed += weights.packCrack * (v / k) * 10000;
+    }
   }
   if (weights.ilSplits) proposed += weights.ilSplits * newIlSplits;
 
@@ -1551,8 +1655,8 @@ function flipStep(S, weights, rng) {
       }
       newScore += weights.popDev * (maxDev * 100) * (maxDev * 100);
     }
-    if (weights.meanMedian || weights.effGap || weights.competitiveness || weights.partisanAdv) {
-      let mean = 0, wd = 0, wr = 0, total = 0, marginSum = 0, muhWins = 0;
+    if (weights.meanMedian || weights.effGap || weights.competitiveness || weights.partisanAdv || weights.lopsidedWins || weights.packCrack) {
+      let mean = 0, wd = 0, wr = 0, total = 0, marginSum = 0, muhWins = 0, lopsided = 0;
       const shares = new Float64Array(kk);
       for (let d = 0; d < kk; d++) {
         const m = (d === dFrom) ? newMuhFrom : (d === dTo) ? newMuhTo : S.muhs[d];
@@ -1567,6 +1671,7 @@ function flipStep(S, weights, rng) {
         }
         if (weights.competitiveness) marginSum += 2 * Math.abs(sh - 0.5);
         if (weights.partisanAdv) muhWins += 1 / (1 + Math.exp(-20 * (sh - 0.5)));
+        if (weights.lopsidedWins) { const o = sh - 0.5; lopsided += o * o; }
       }
       mean /= kk;
       if (weights.meanMedian) {
@@ -1584,6 +1689,11 @@ function flipStep(S, weights, rng) {
         newScore += weights.competitiveness * mm * mm;
       }
       if (weights.partisanAdv) newScore += weights.partisanAdv * 10 * muhWins;
+      if (weights.lopsidedWins) newScore += weights.lopsidedWins * lopsided * 10000;
+      if (weights.packCrack) {
+        let v = 0; for (let d = 0; d < kk; d++) { const o = shares[d] - mean; v += o * o; }
+        newScore += weights.packCrack * (v / kk) * 10000;
+      }
     }
     if (weights.ilSplits) newScore += weights.ilSplits * newIlSplits;
 
@@ -1698,7 +1808,7 @@ self.onmessage = (e) => {
     const polish = !!m.polish;
     const rng = mkRng(m.seed | 0);
     // Polish weights: only popDev matters during flip phase
-    const wPolish = { cutEdges: 0, popDev: 1, ilSplits: 0, meanMedian: 0, effGap: 0, competitiveness: 0, partisanAdv: 0 };
+    const wPolish = { cutEdges: 0, popDev: 1, ilSplits: 0, meanMedian: 0, effGap: 0, competitiveness: 0, partisanAdv: 0, lopsidedWins: 0, packCrack: 0 };
 
     let S;
     if (m.type === 'continue') {
@@ -1744,8 +1854,17 @@ self.onmessage = (e) => {
     const totalIters = m.iters;
     const T0 = m.T0 || 0;
     const polishFlips = (m.polishFlips != null) ? (m.polishFlips | 0) : 3;
+    const anneal = m.anneal || 'linear';
+    const throttleMs = +m.throttleMs || 0;
     const seenChanged = new Uint8Array(R.N);
     const pendingNodes = [];
+
+    const tForIter = (i) => {
+      if (T0 === 0) return 0;
+      if (anneal === 'const') return T0;
+      if (anneal === 'exp')   return T0 * Math.pow(0.9995, i);
+      return T0 * (1 - i / Math.max(1, totalIters));  // 'linear'
+    };
 
     const tick = () => {
       if (aborted) {
@@ -1760,7 +1879,7 @@ self.onmessage = (e) => {
 
       const BATCH = polish ? 8 : 30;  // polish does more work per iter (N flips + 1 ReCom)
       for (let b = 0; b < BATCH && iter < totalIters; b++, iter++) {
-        const T = T0 * (1 - iter / totalIters);
+        const T = tForIter(iter);
         const changed = polish
           ? polishStep(S, tol, weights, rng, wPolish, polishFlips)
           : recomStepInc(S, tol, weights, T, rng);
@@ -1792,7 +1911,7 @@ self.onmessage = (e) => {
           metrics: metricsFromState(S),
         }, [diffBuf]);
       }
-      if (iter < totalIters) setTimeout(tick, 0);
+      if (iter < totalIters) setTimeout(tick, throttleMs);
       else {
         savedState = S; savedKey = m.key;
         const buf = S.bestAssignment.slice().buffer;
@@ -1837,7 +1956,13 @@ const state = {
   active: 'national',   // 'national' or a region key
   workers: {},          // region key -> Worker (one worker per region, run in parallel)
   vpd: 100000,
-  weights: { cutEdges: 1, popDev: 50, meanMedian: 0, effGap: 0, competitiveness: 0, partisanAdv: 0, ilSplits: 0 },
+  weights: { cutEdges: 1, popDev: 50, meanMedian: 0, effGap: 0, competitiveness: 0, partisanAdv: 0, lopsidedWins: 0, packCrack: 0, ilSplits: 0 },
+  // Run-time extras driven from the Advanced algorithm + Stop conditions panels.
+  anneal: 'linear',         // 'linear' | 'exp' | 'const'
+  autoPolish: true,
+  throttleMs: 0,
+  stop: { popdev: false, ikt: false, muh: false, time: false },
+  runStartTs: 0,
   tol: 0.10,
   scoreHist: [],
   colorMode: 'districts',
@@ -1977,25 +2102,22 @@ window.addEventListener('mouseup',   () => tolDrag = false);
 // Optimization presets — each emphasizes a different Antimander-style
 // objective. Sliders below give continuous per-objective control; clicking
 // a preset just snaps all six sliders to a named configuration.
+function _wp(o) {
+  return Object.assign({ cutEdges: 0, popDev: 50, effGap: 0, competitiveness: 0, meanMedian: 0, partisanAdv: 0, lopsidedWins: 0, packCrack: 0, ilSplits: 0 }, o);
+}
 const PRESETS = {
-  antimander:   { cutEdges: 5,  popDev: 50, effGap: 5,   competitiveness: 5,  meanMedian: 0, partisanAdv: 0,   ilSplits: 0 },
-  compactness:  { cutEdges: 10, popDev: 50, effGap: 0,   competitiveness: 0,  meanMedian: 0, partisanAdv: 0,   ilSplits: 0 },
-  partisan:     { cutEdges: 1,  popDev: 50, effGap: 20,  competitiveness: 0,  meanMedian: 5, partisanAdv: 0,   ilSplits: 0 },
-  competitive:  { cutEdges: 1,  popDev: 50, effGap: 0,   competitiveness: 20, meanMedian: 0, partisanAdv: 0,   ilSplits: 0 },
-  provinces:    { cutEdges: 1,  popDev: 50, effGap: 0,   competitiveness: 0,  meanMedian: 0, partisanAdv: 0,   ilSplits: 10 },
-  poponly:      { cutEdges: 0,  popDev: 50, effGap: 0,   competitiveness: 0,  meanMedian: 0, partisanAdv: 0,   ilSplits: 0 },
-  // UNFAIR: maximize one party's seat count. Compactness gets dropped to
-  // 0.2 so the partisan force (slider × 10 internally) can actually
-  // override the cut-edge preference. Population balance stays at 50
-  // (the hard popTol still gates rejection).
-  proiktidar:   { cutEdges: 0.2, popDev: 50, effGap: 0,   competitiveness: 0,  meanMedian: 0, partisanAdv:  80, ilSplits: 0 },
-  promuh:       { cutEdges: 0.2, popDev: 50, effGap: 0,   competitiveness: 0,  meanMedian: 0, partisanAdv: -80, ilSplits: 0 },
-  // Inverted effGap weight (negative) pushes the search AWAY from
-  // proportional outcomes — the worst-case partisan bias.
-  maxasym:      { cutEdges: 0.5, popDev: 50, effGap: -50, competitiveness: 0,  meanMedian: 0, partisanAdv: 0,   ilSplits: 0 },
-  proportional: { cutEdges: 1,  popDev: 50, effGap: 10,  competitiveness: 5,  meanMedian: 15, partisanAdv: 0,  ilSplits: 0 },
-  random:       { cutEdges: 0,  popDev: 50, effGap: 0,   competitiveness: 0,  meanMedian: 0, partisanAdv: 0,   ilSplits: 0 },
-  balanced:     { cutEdges: 3,  popDev: 50, effGap: 3,   competitiveness: 3,  meanMedian: 3, partisanAdv: 0,   ilSplits: 3 },
+  antimander:   _wp({ cutEdges: 5,  effGap: 5,   competitiveness: 5 }),
+  compactness:  _wp({ cutEdges: 10 }),
+  partisan:     _wp({ cutEdges: 1,  effGap: 20,  meanMedian: 5 }),
+  competitive:  _wp({ cutEdges: 1,  competitiveness: 20 }),
+  provinces:    _wp({ cutEdges: 1,  ilSplits: 10 }),
+  poponly:      _wp({ cutEdges: 0 }),
+  proiktidar:   _wp({ cutEdges: 0.2, partisanAdv:  80, lopsidedWins: 10 }),
+  promuh:       _wp({ cutEdges: 0.2, partisanAdv: -80, lopsidedWins: 10 }),
+  maxasym:      _wp({ cutEdges: 0.5, effGap: -50 }),
+  proportional: _wp({ cutEdges: 1,  effGap: 10,  competitiveness: 5, meanMedian: 15 }),
+  random:       _wp({ cutEdges: 0 }),
+  balanced:     _wp({ cutEdges: 3, effGap: 3, competitiveness: 3, meanMedian: 3, ilSplits: 3 }),
 };
 function setWeight(k, w) {
   state.weights[k] = w;
@@ -2048,9 +2170,136 @@ document.querySelectorAll('input[type="range"][data-weight]').forEach(slider => 
     const row = slider.closest('.weight-row');
     row.querySelector('.weight-val').textContent = w;
     row.classList.toggle('zero', w === 0);
-    // Manual change clears preset highlight
     document.querySelectorAll('[data-preset]').forEach(b => b.classList.remove('active'));
   });
+});
+
+// Reset-all-weights — snap every slider back to the bare-minimum baseline
+// (cutEdges + popDev). Useful when the user has dialed many sliders and
+// wants a clean start.
+$('btn-reset-weights').onclick = () => {
+  const baseline = _wp({ cutEdges: 1 });
+  for (const [k, w] of Object.entries(baseline)) setWeight(k, w);
+  document.querySelectorAll('[data-preset]').forEach(b => b.classList.remove('active'));
+};
+
+// Annealing schedule picker. The worker computes T per iteration; the
+// schedule choice is passed in m.anneal so the worker can apply it.
+document.querySelectorAll('[data-anneal]').forEach(b => {
+  b.onclick = () => {
+    state.anneal = b.dataset.anneal;
+    document.querySelectorAll('[data-anneal]').forEach(x => x.classList.toggle('active', x === b));
+  };
+});
+
+// Auto-polish: after a successful run, automatically chain a polish run
+// to push popDev below ReCom's tolerance floor.
+document.querySelectorAll('[data-autopolish]').forEach(b => {
+  b.onclick = () => {
+    state.autoPolish = (b.dataset.autopolish === 'on');
+    document.querySelectorAll('[data-autopolish]').forEach(x => x.classList.toggle('active', x === b));
+  };
+});
+
+// Throttle slider — adds a setTimeout delay between worker batches so the
+// optimization can be watched at human speed. Implemented by sending the
+// value with each run; the worker injects setTimeout(tick, throttle).
+$('in-throttle').addEventListener('input', () => {
+  state.throttleMs = +$('in-throttle').value || 0;
+  $('throttle-val').textContent = state.throttleMs;
+});
+
+// Stop-condition toggles. State.stop[key] is true when the corresponding
+// condition is armed. Evaluated by checkStopConditions() on every tick.
+document.querySelectorAll('[data-stopon]').forEach(b => {
+  b.onclick = () => {
+    const k = b.dataset.stopon;
+    state.stop[k] = !state.stop[k];
+    b.classList.toggle('active', state.stop[k]);
+    b.textContent = state.stop[k] ? 'On' : 'Off';
+  };
+});
+function checkStopConditions() {
+  if (state.stop.time && state.runStartTs) {
+    const elapsed = (Date.now() - state.runStartTs) / 1000;
+    if (elapsed >= (+$('stop-time').value || 60)) return 'time';
+  }
+  if (state.stop.popdev) {
+    const targetPct = +$('stop-popdev').value || 0;
+    const nat = state.regions.national;
+    const m = (state.active === 'national' && nat?.metrics) ? nat.metrics : null;
+    if (m && (m.popDev * 100) <= targetPct) return 'popdev';
+    for (const meta of REGIONS) {
+      const r = state.regions[meta.key];
+      if (state.running.has(meta.key) && r?.metrics && (r.metrics.popDev * 100) <= targetPct) return 'popdev';
+    }
+  }
+  if (state.stop.ikt) {
+    const target = +$('stop-ikt').value || 0;
+    const nat = state.regions.national;
+    if (nat?.metrics?.iktSeats >= target) return 'ikt';
+  }
+  if (state.stop.muh) {
+    const target = +$('stop-muh').value || 0;
+    const nat = state.regions.national;
+    if (nat?.metrics?.muhSeats >= target) return 'muh';
+  }
+  return null;
+}
+
+// Step button — runs a single ReCom iteration on the active region.
+// Convenient for watching the algorithm move district-by-district.
+$('btn-step').onclick = () => {
+  const key = state.active;
+  const r = state.regions[key];
+  if (!r) return;
+  if (state.running.has(key)) return;
+  const k = r.k || Math.max(2, Math.round((r.totalPop || 1) / state.vpd));
+  state.running.add(key);
+  state.runStartTs = Date.now();
+  renderRegionList(); updateButtons();
+  state.workers[key].postMessage({
+    type: r.assignment ? 'continue' : 'run', key, k,
+    tol: state.tol, weights: { ...state.weights },
+    iters: 1,
+    seed: getRunSeed(key, k),
+    T0: +$('in-temp').value || 0,
+    polishFlips: +$('in-flips').value || 3,
+    anneal: state.anneal, throttleMs: 0,
+    polish: !!r.assignment,
+  });
+};
+
+// Palette picker
+state.palette = 'golden';
+document.querySelectorAll('[data-palette]').forEach(b => {
+  b.onclick = () => {
+    state.palette = b.dataset.palette;
+    document.querySelectorAll('[data-palette]').forEach(x => x.classList.toggle('active', x === b));
+    // Invalidate every region's cached palette so it'll rebuild on next paint
+    for (const r of Object.values(state.regions)) { if (r) r._palette = null; }
+    recolorAll();
+  };
+});
+
+// District labels toggle
+state.labels = 'off';
+document.querySelectorAll('[data-labels]').forEach(b => {
+  b.onclick = () => {
+    state.labels = b.dataset.labels;
+    document.querySelectorAll('[data-labels]').forEach(x => x.classList.toggle('active', x === b));
+    redrawDistrictLabels();
+  };
+});
+
+// İl borders toggle
+state.ilBord = 'off';
+document.querySelectorAll('[data-ilbord]').forEach(b => {
+  b.onclick = () => {
+    state.ilBord = b.dataset.ilbord;
+    document.querySelectorAll('[data-ilbord]').forEach(x => x.classList.toggle('active', x === b));
+    redrawIlBorders();
+  };
 });
 
 // Map appearance — live update of stroke width, mahalle opacity, tossup band.
@@ -2750,6 +2999,8 @@ function onWorkerMsg(e) {
       state.running.delete(m.key);
       renderRegionList();
       updateButtons();
+      redrawDistrictLabels();
+      onRunFinished(m.key, !!m.aborted);
     }
     return;
   }
@@ -2771,6 +3022,15 @@ function onWorkerMsg(e) {
     if (m.score !== undefined && Number.isFinite(m.score)) {
       if (!r.scoreHist) r.scoreHist = [];
       r.scoreHist.push(m.score);
+    }
+    // Stop conditions — abort the running worker(s) if any armed condition
+    // is now satisfied.
+    const stopReason = checkStopConditions();
+    if (stopReason) {
+      for (const key of [...state.running]) {
+        state.workers[key]?.postMessage({ type: 'abort' });
+      }
+      status(`Stopped early: ${stopReason}`, '');
     }
     if (state.active === m.key || state.active === 'national') {
       if (state.active === 'national') {
@@ -2801,9 +3061,18 @@ function onWorkerMsg(e) {
   }
 }
 
+// Restart book-keeping. ctx.remaining is # of additional runs after the
+// initial; ctx.best holds the lowest-score (assignment, score) seen so far.
+state._restarts = {};
+function initRestartCtx(key) {
+  const n = +$('in-restarts').value || 1;
+  state._restarts[key] = { remaining: Math.max(0, n - 1), best: null };
+}
+
 function startRun() {
   if (state.active === 'national') return;  // national has its own CTA
   if (state.running.has(state.active)) return;
+  initRestartCtx(state.active);
   runRegion(state.active);
 }
 
@@ -2812,6 +3081,7 @@ function startRunAll() {
   for (const meta of REGIONS) {
     if (state.regions[meta.key]?.status === 'loading') continue;
     if (state.running.has(meta.key)) continue;
+    initRestartCtx(meta.key);
     runRegion(meta.key);
   }
 }
@@ -2823,7 +3093,53 @@ function startRunNational() {
   if (state.running.has('national')) return;
   state.active = 'national';
   selectRegion('national');
+  initRestartCtx('national');
   runRegion('national');
+}
+
+// Called once for each 'done' message. Handles multi-restart (loop with
+// new seed, keep best) and auto-polish (chain a polish run after the
+// final attempt).
+function onRunFinished(key, aborted) {
+  const r = state.regions[key];
+  if (!r) return;
+  if (aborted) {
+    delete state._restarts[key];
+    r._polishedThisRun = false;
+    return;
+  }
+  const ctx = state._restarts[key];
+  if (ctx) {
+    // Track best assignment across restarts
+    if (r.assignment && (ctx.best == null || r.bestScore < ctx.best.score)) {
+      ctx.best = { score: r.bestScore, assignment: r.assignment.slice() };
+    }
+    if (ctx.remaining > 0) {
+      ctx.remaining--;
+      status(`${r.label || key}: restart ${(+$('in-restarts').value) - ctx.remaining}/${+$('in-restarts').value}`, '');
+      setTimeout(() => runRegion(key), 50);
+      return;
+    }
+    // Final restart finished — restore the best across all restarts
+    if (ctx.best && (r.bestScore == null || ctx.best.score < r.bestScore)) {
+      r.assignment = ctx.best.assignment;
+      r.bestScore = ctx.best.score;
+      recolorRegion(key);
+    }
+    delete state._restarts[key];
+  }
+  // Auto-polish chain: only after the final restart of the main run.
+  if (state.autoPolish && r.assignment && !r._polishedThisRun) {
+    r._polishedThisRun = true;
+    setTimeout(() => {
+      const wasActive = state.active;
+      state.active = key;
+      startPolish();
+      state.active = wasActive;
+    }, 50);
+    return;
+  }
+  r._polishedThisRun = false;
 }
 
 function runRegion(key) {
@@ -2832,6 +3148,7 @@ function runRegion(key) {
   const k = Math.max(2, Math.round(r.totalPop / state.vpd));
   r.status = 'running'; r.scoreHist = []; r.iter = 0; r.bestScore = Infinity; r.k = k;
   state.running.add(key);
+  state.runStartTs = Date.now();
   if (key === state.active) state.scoreHist = [];
   renderRegionList(); updateButtons();
   state.workers[key].postMessage({
@@ -2841,6 +3158,7 @@ function runRegion(key) {
     seed: getRunSeed(key, k),
     T0: +$('in-temp').value || 0,
     polishFlips: +$('in-flips').value || 3,
+    anneal: state.anneal, throttleMs: state.throttleMs,
   });
 }
 
@@ -2863,6 +3181,7 @@ function startPolish() {
     seed: getRunSeed(key, r.k || 1),
     T0: +$('in-temp').value || 0,
     polishFlips: +$('in-flips').value || 3,
+    anneal: state.anneal, throttleMs: state.throttleMs,
     polish: true,
   });
 }
@@ -2892,6 +3211,22 @@ function resetRegion() {
 
 function buildPalette(n) {
   const pal = new Array(n);
+  const mode = state.palette || 'golden';
+  if (mode === 'spectral') {
+    // d3.interpolateSpectral if available, else manual rainbow
+    const interp = (d3 && d3.interpolateSpectral) ? d3.interpolateSpectral : null;
+    for (let i = 0; i < n; i++) {
+      const t = n > 1 ? i / (n - 1) : 0.5;
+      pal[i] = interp ? interp(t) : `hsl(${(t * 270).toFixed(1)}, 70%, 50%)`;
+    }
+    return pal;
+  }
+  if (mode === 'categorical') {
+    const cat = (d3 && d3.schemeCategory10) ? d3.schemeCategory10 : ['#1f77b4','#ff7f0e','#2ca02c','#d62728','#9467bd','#8c564b','#e377c2','#7f7f7f','#bcbd22','#17becf'];
+    for (let i = 0; i < n; i++) pal[i] = cat[i % cat.length];
+    return pal;
+  }
+  // 'golden' — default golden-angle hues
   for (let i = 0; i < n; i++) {
     const h = (i * 137.508) % 360;
     const s = 60 + (i % 3) * 8;
@@ -2899,6 +3234,93 @@ function buildPalette(n) {
     pal[i] = `hsl(${h.toFixed(1)},${s}%,${l}%)`;
   }
   return pal;
+}
+
+// District labels — overlay <text> on the map at each district's centroid.
+// Modes: 'off' / 'num' (district number) / 'share' (muh share %) / 'margin'.
+function redrawDistrictLabels() {
+  let g = document.getElementById('district-labels');
+  if (g) g.remove();
+  if ((state.labels || 'off') === 'off') return;
+  const svg = document.getElementById('map');
+  if (!svg) return;
+  g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+  g.id = 'district-labels';
+  g.setAttribute('pointer-events', 'none');
+  svg.appendChild(g);
+  const ink = getCSSVar('--ink') || '#1d1810';
+  const paper = getCSSVar('--paper') || '#f4eccf';
+  const isNat = state.active === 'national' && state.regions.national?.assignment;
+  const sources = isNat ? [state.regions.national] : (state.regions[state.active] ? [state.regions[state.active]] : []);
+  for (const r of sources) {
+    if (!r?.assignment) continue;
+    const stats = ensureDistrictStats(r);
+    const k = r.k;
+    // Centroids: weighted average of feature centroids per district
+    const features = r.features || state.regions[state.active]?.features;
+    if (!features) continue;
+    const cx = new Float64Array(k), cy = new Float64Array(k), nC = new Int32Array(k);
+    const proj = state.proj;
+    for (let i = 0; i < r.N; i++) {
+      const f = features[i]; if (!f?.geometry) continue;
+      const d3c = d3.geoCentroid(f);
+      const p = proj ? proj(d3c) : null;
+      if (!p) continue;
+      const d = r.assignment[i];
+      cx[d] += p[0]; cy[d] += p[1]; nC[d]++;
+    }
+    for (let d = 0; d < k; d++) {
+      if (nC[d] === 0) continue;
+      const x = cx[d] / nC[d], y = cy[d] / nC[d];
+      const t = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+      let label = '';
+      if (state.labels === 'num') label = String(d + 1);
+      else if (state.labels === 'share' && stats?.[d]) label = (stats[d].share * 100).toFixed(0) + '%';
+      else if (state.labels === 'margin' && stats?.[d]) label = (stats[d].margin * 100).toFixed(0) + '%';
+      t.textContent = label;
+      t.setAttribute('x', x); t.setAttribute('y', y);
+      t.setAttribute('text-anchor', 'middle');
+      t.setAttribute('dominant-baseline', 'middle');
+      t.setAttribute('fill', ink);
+      t.setAttribute('stroke', paper); t.setAttribute('stroke-width', '3'); t.setAttribute('paint-order', 'stroke');
+      t.setAttribute('font-family', "'Eczar', Georgia, serif");
+      t.setAttribute('font-weight', '700');
+      t.setAttribute('font-size', '11');
+      g.appendChild(t);
+    }
+  }
+}
+
+// İl (province) borders — derive per-region by drawing every edge where
+// adjacent mahalleler have different il codes. One <path> per region.
+function redrawIlBorders() {
+  const mode = state.ilBord || 'off';
+  for (const meta of REGIONS) {
+    const r = state.regions[meta.key];
+    if (!r) continue;
+    let el = r.ilBorderEl;
+    if (mode === 'off') { if (el) el.setAttribute('d', ''); continue; }
+    if (!el) {
+      el = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      el.setAttribute('fill', 'none');
+      el.setAttribute('pointer-events', 'none');
+      el.setAttribute('vector-effect', 'non-scaling-stroke');
+      r.ilBorderEl = el;
+      document.getElementById('map').appendChild(el);
+    }
+    const ink = getCSSVar('--ink') || '#1d1810';
+    el.setAttribute('stroke', ink);
+    el.setAttribute('stroke-width', mode === 'bold' ? '1.4' : '0.7');
+    el.setAttribute('stroke-opacity', mode === 'bold' ? '0.9' : '0.5');
+    // Build the il-boundary path by re-using the district-border drawer's
+    // arc-walking on a synthetic "il assignment" array.
+    const savedAssign = r.assignment, savedK = r.k, savedBorder = r.borderEl;
+    r.assignment = r.il;
+    r.k = Math.max(...r.il) + 1;
+    r.borderEl = el;
+    try { redrawDistrictBorders(meta.key); }
+    finally { r.assignment = savedAssign; r.k = savedK; r.borderEl = savedBorder; }
+  }
 }
 
 function recolorRegion(key) {
