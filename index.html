@@ -455,6 +455,34 @@
   .status .lhs { color: var(--ink); }
   .status .err { color: var(--red-deep); font-weight: 600; }
 
+  /* Settings section — every tunable lives here, below the map */
+  .settings-section {
+    margin-top: 28px;
+    padding-top: 22px;
+    border-top: 2px solid var(--ink);
+  }
+  .settings-h2 {
+    font-family: var(--display); font-weight: 700; font-size: 24px;
+    letter-spacing: -0.01em; margin: 0 0 4px; color: var(--ink); line-height: 1.05;
+  }
+  .settings-sub {
+    font-family: var(--body); font-style: italic; font-size: 13px;
+    color: var(--muted); margin-bottom: 20px;
+  }
+  .settings-grid {
+    display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 28px; align-items: start;
+  }
+  .settings-grid > div { display: flex; flex-direction: column; min-width: 0; }
+  .settings-grid .panel { margin-bottom: 0; }
+  .settings-grid .panel + .panel {
+    margin-top: 18px;
+    border-top: 1px solid var(--rule-soft);
+    padding-top: 18px;
+  }
+
+  @media (max-width: 1100px) {
+    .settings-grid { grid-template-columns: 1fr 1fr; }
+  }
   @media (max-width: 900px) {
     .grid { grid-template-columns: 1fr; }
     .map-wrap { aspect-ratio: 4 / 3; }
@@ -463,6 +491,7 @@
     .metric { border-bottom: 1px solid var(--rule-soft); }
     .metric:nth-last-child(-n+2) { border-bottom: none; }
     .hero-title { font-size: 28px; }
+    .settings-grid { grid-template-columns: 1fr; }
   }
 </style>
 </head>
@@ -509,214 +538,11 @@
         <div class="region-list" id="region-list"></div>
       </div>
 
-      <div class="panel">
-        <h3>Run parameters</h3>
-        <div>
-          <div class="label">Iterations</div>
-          <input class="nin" type="number" id="in-iters" value="10000" min="100" max="500000" step="500" title="ReCom moves to attempt. For aggressive gerrymandering or large k (national k≈600) you want 20K-100K — each move only shifts a few districts.">
-        </div>
-        <div style="margin-top:12px">
-          <div class="label">Population tolerance</div>
-          <div class="slider-track" id="tol-track">
-            <div class="slider-fill" id="tol-fill"></div>
-            <div class="slider-thumb" id="tol-thumb"></div>
-          </div>
-          <div style="font-family:var(--mono);font-weight:600;font-size:12px;color:var(--ink);font-variant-numeric:tabular-nums" id="tol-label">±10.0%</div>
-        </div>
-        <div style="margin-top:12px">
-          <div class="label">Annealing temperature</div>
-          <input class="nin" type="number" id="in-temp" value="0" min="0" max="10000" step="10" title="T=0 greedy ReCom. T>0 = simulated annealing — uphill moves accepted with probability exp(-ΔE/T).">
-          <div class="hint">T=0 greedy. Higher = more exploration.</div>
-        </div>
-        <div style="margin-top:12px">
-          <div class="label">Polish flips per ReCom step</div>
-          <input class="nin" type="number" id="in-flips" value="3" min="0" max="50" step="1" title="Number of single-mahalle flip moves before each ReCom step in Polish mode. Higher = more fine-grained popDev work.">
-        </div>
-        <div style="margin-top:12px">
-          <div class="label">RNG seed</div>
-          <div style="display:grid;grid-template-columns:1fr auto;gap:6px">
-            <input class="nin" type="number" id="in-seed" value="42" min="0" max="2147483647" step="1" title="Seed used by the worker's PRNG. Lock to reproduce a run exactly.">
-            <button class="toggle-btn" id="btn-seed-lock" title="Lock = reuse the seed shown above. Auto = generate a fresh seed for each run.">Auto</button>
-          </div>
-        </div>
-      </div>
+<!-- Run parameters panel moved to settings-section -->
 
-      <div class="panel">
-        <h3>Advanced algorithm</h3>
-        <div>
-          <div class="label">Annealing schedule</div>
-          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px">
-            <button class="toggle-btn active" data-anneal="linear" title="T = T0 · (1 − iter/totalIters)">Linear</button>
-            <button class="toggle-btn" data-anneal="exp" title="T = T0 · 0.999^iter">Exponential</button>
-            <button class="toggle-btn" data-anneal="const" title="T = T0 always (constant)">Constant</button>
-          </div>
-        </div>
-        <div style="margin-top:12px">
-          <div class="label">Multi-restart (best of N)</div>
-          <input class="nin" type="number" id="in-restarts" value="1" min="1" max="50" step="1" title="Run the optimization N times with different seeds; keep the best result. Hugely improves quality at N≥5 at the cost of N× wall time.">
-        </div>
-        <div style="margin-top:12px">
-          <div class="label">Auto-polish after run</div>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px">
-            <button class="toggle-btn" data-autopolish="off">Off</button>
-            <button class="toggle-btn active" data-autopolish="on">On</button>
-          </div>
-        </div>
-        <div style="margin-top:12px">
-          <div class="label">Speed throttle (ms / batch)</div>
-          <input type="range" id="in-throttle" min="0" max="500" step="10" value="0" title="Delay between worker batches. 0 = full speed; higher = slow enough to watch the optimization.">
-          <div style="font-family:var(--mono);font-size:11px;color:var(--muted);margin-top:2px"><span id="throttle-val">0</span>ms</div>
-        </div>
-        <button class="cmd" id="btn-step" style="margin-top:12px" title="Run a single ReCom step on the active region (or polish-step if active region has an assignment).">Step (1 iter)</button>
-      </div>
+<!-- Advanced + Stop conditions panels moved to settings-section -->
 
-      <div class="panel">
-        <h3>Stop conditions</h3>
-        <div class="hint" style="margin-top:0">The run aborts as soon as ANY enabled condition is met.</div>
-        <div style="margin-top:10px">
-          <div class="label">Stop when popDev ≤</div>
-          <div style="display:grid;grid-template-columns:1fr auto;gap:6px">
-            <input class="nin" type="number" id="stop-popdev" value="0.5" min="0" max="100" step="0.1">
-            <button class="toggle-btn" data-stopon="popdev">Off</button>
-          </div>
-        </div>
-        <div style="margin-top:10px">
-          <div class="label">Stop when İkt seats ≥</div>
-          <div style="display:grid;grid-template-columns:1fr auto;gap:6px">
-            <input class="nin" type="number" id="stop-ikt" value="350" min="1" max="800" step="1">
-            <button class="toggle-btn" data-stopon="ikt">Off</button>
-          </div>
-        </div>
-        <div style="margin-top:10px">
-          <div class="label">Stop when Muh seats ≥</div>
-          <div style="display:grid;grid-template-columns:1fr auto;gap:6px">
-            <input class="nin" type="number" id="stop-muh" value="350" min="1" max="800" step="1">
-            <button class="toggle-btn" data-stopon="muh">Off</button>
-          </div>
-        </div>
-        <div style="margin-top:10px">
-          <div class="label">Stop after N seconds</div>
-          <div style="display:grid;grid-template-columns:1fr auto;gap:6px">
-            <input class="nin" type="number" id="stop-time" value="60" min="5" max="3600" step="5">
-            <button class="toggle-btn" data-stopon="time">Off</button>
-          </div>
-        </div>
-      </div>
-
-      <div class="panel">
-        <h3>Optimization</h3>
-        <div class="label">Presets</div>
-        <div class="presets">
-          <button class="toggle-btn" data-preset="antimander" title="Antimander balanced: efficiency gap + competitiveness + compactness.">Antimander</button>
-          <button class="toggle-btn" data-preset="compactness" title="Tight, compact districts. High cut-edge penalty, partisan blind.">Compactness</button>
-          <button class="toggle-btn" data-preset="partisan" title="Partisan fairness: minimize efficiency gap and mean–median.">Partisan fair</button>
-          <button class="toggle-btn" data-preset="competitive" title="Competitive races: minimize landslide margins.">Competitive</button>
-          <button class="toggle-btn" data-preset="provinces" title="Keep districts inside il (province) boundaries where possible.">İl-preserving</button>
-          <button class="toggle-btn" data-preset="poponly" title="Population balance only. No compactness or fairness pressure.">Pop only</button>
-          <button class="toggle-btn" data-preset="proiktidar" title="UNFAIR: pack opposition voters into few districts and crack them across many — maximize İktidar seat count.">Pro-İktidar (gerrymander)</button>
-          <button class="toggle-btn" data-preset="promuh" title="UNFAIR: mirror of Pro-İktidar — maximize Muhalefet seat count.">Pro-Muhalefet (gerrymander)</button>
-          <button class="toggle-btn" data-preset="maxasym" title="Maximize partisan asymmetry — efficiency gap as far from zero as possible (worst-case partisan bias).">Max asymmetry</button>
-          <button class="toggle-btn" data-preset="proportional" title="Proportional representation: each party's seat share tracks its vote share — minimize mean–median gap.">Proportional</button>
-          <button class="toggle-btn" data-preset="random" title="No weights at all (random walk). Useful as a baseline / sanity check.">Random walk</button>
-          <button class="toggle-btn" data-preset="balanced" title="Everything turned on at moderate weight: a Pareto-ish balanced run.">Balanced</button>
-        </div>
-        <div class="label" style="margin-top:14px">Weights</div>
-        <div class="weight-row" data-key="cutEdges">
-          <span class="weight-name">Compactness (cut edges)</span>
-          <span class="weight-val">1</span>
-          <input type="range" data-weight="cutEdges" min="0" max="10" step="0.5" value="1">
-        </div>
-        <div class="weight-row" data-key="popDev">
-          <span class="weight-name">Population balance</span>
-          <span class="weight-val">50</span>
-          <input type="range" data-weight="popDev" min="0" max="100" step="5" value="50">
-        </div>
-        <div class="weight-row zero" data-key="effGap">
-          <span class="weight-name">Efficiency gap</span>
-          <span class="weight-val">0</span>
-          <input type="range" data-weight="effGap" min="0" max="20" step="1" value="0">
-        </div>
-        <div class="weight-row zero" data-key="competitiveness">
-          <span class="weight-name">Competitiveness</span>
-          <span class="weight-val">0</span>
-          <input type="range" data-weight="competitiveness" min="0" max="20" step="1" value="0">
-        </div>
-        <div class="weight-row zero" data-key="meanMedian">
-          <span class="weight-name">Mean–median</span>
-          <span class="weight-val">0</span>
-          <input type="range" data-weight="meanMedian" min="0" max="20" step="1" value="0">
-        </div>
-        <div class="weight-row zero" data-key="ilSplits">
-          <span class="weight-name">İl-split penalty</span>
-          <span class="weight-val">0</span>
-          <input type="range" data-weight="ilSplits" min="0" max="10" step="0.5" value="0">
-        </div>
-        <div class="weight-row zero" data-key="partisanAdv">
-          <span class="weight-name">Partisan tilt (− Muh ← 0 → + İkt)</span>
-          <span class="weight-val">0</span>
-          <input type="range" data-weight="partisanAdv" min="-100" max="100" step="1" value="0" title="Signed weight, internally ×10 in the score. Positive = gerrymander toward İktidar. Negative = toward Muhalefet. To actually flip seats: pair with low Compactness weight + more iterations.">
-        </div>
-        <div class="weight-row zero" data-key="lopsidedWins" title="Penalize landslide wins. Sum_d max(0, share_d − 0.5)² when muh wins, mirrored when ikt wins — high = more efficient vote-spreading per party.">
-          <span class="weight-name">Lopsided-wins penalty</span>
-          <span class="weight-val">0</span>
-          <input type="range" data-weight="lopsidedWins" min="0" max="50" step="1" value="0">
-        </div>
-        <div class="weight-row zero" data-key="packCrack" title="Variance of share across districts. High variance = packing+cracking pattern. Penalizing variance pushes toward uniform districts; rewarding (use partisan tilt instead) amplifies gerrymanders.">
-          <span class="weight-name">Pack / crack variance</span>
-          <span class="weight-val">0</span>
-          <input type="range" data-weight="packCrack" min="0" max="50" step="1" value="0">
-        </div>
-        <button class="toggle-btn" id="btn-reset-weights" style="margin-top:10px;width:100%" title="Reset all weights to the bare-minimum baseline (cutEdges + popDev only).">Reset all weights</button>
-      </div>
-
-      <div class="panel">
-        <h3>Map appearance</h3>
-        <div class="label">Color mode</div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:12px">
-          <button class="toggle-btn active" id="color-districts">Districts</button>
-          <button class="toggle-btn" id="color-partisan">Partisan</button>
-        </div>
-        <div class="weight-row">
-          <span class="weight-name">District border width</span>
-          <span class="weight-val" id="map-distwidth-val">1.1</span>
-          <input type="range" id="map-distwidth" min="0.3" max="3" step="0.1" value="1.1">
-        </div>
-        <div class="weight-row">
-          <span class="weight-name">Mahalle border</span>
-          <span class="weight-val" id="map-mahopacity-val">10%</span>
-          <input type="range" id="map-mahopacity" min="0" max="50" step="2" value="10">
-        </div>
-        <div class="weight-row">
-          <span class="weight-name">Tossup band</span>
-          <span class="weight-val" id="map-tossupband-val">±3%</span>
-          <input type="range" id="map-tossupband" min="0" max="15" step="0.5" value="3">
-        </div>
-        <div style="margin-top:12px">
-          <div class="label">Palette (Districts mode)</div>
-          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px">
-            <button class="toggle-btn active" data-palette="golden" title="Golden-angle hues. Default.">Golden</button>
-            <button class="toggle-btn" data-palette="spectral" title="Spectral rainbow.">Spectral</button>
-            <button class="toggle-btn" data-palette="categorical" title="d3.schemeCategory10 cycled.">Cat10</button>
-          </div>
-        </div>
-        <div style="margin-top:12px">
-          <div class="label">District labels</div>
-          <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:4px">
-            <button class="toggle-btn active" data-labels="off">Off</button>
-            <button class="toggle-btn" data-labels="num">#</button>
-            <button class="toggle-btn" data-labels="share">Share</button>
-            <button class="toggle-btn" data-labels="margin">Margin</button>
-          </div>
-        </div>
-        <div style="margin-top:12px">
-          <div class="label">İl (province) borders</div>
-          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px">
-            <button class="toggle-btn active" data-ilbord="off">Off</button>
-            <button class="toggle-btn" data-ilbord="soft">Soft</button>
-            <button class="toggle-btn" data-ilbord="bold">Bold</button>
-          </div>
-        </div>
-      </div>
+<!-- Optimization + Map appearance moved to settings-section -->
 
       <div class="panel">
         <h3>Run</h3>
@@ -734,22 +560,7 @@
         </div>
       </div>
 
-      <div class="panel">
-        <h3>Scenarios</h3>
-        <div class="label">Save current</div>
-        <div style="display:grid;grid-template-columns:1fr auto;gap:6px">
-          <input class="nin" type="text" id="scn-name" placeholder="Name (optional)" autocomplete="off">
-          <button class="toggle-btn" id="scn-save" title="Saves the active region's assignment + weights + popTol + vpd to localStorage.">Save</button>
-        </div>
-        <div class="hint">Saves the active region's assignment plus current weights, tolerance, and VPD target.</div>
-        <div class="label" style="margin-top:14px">Saved</div>
-        <div id="scn-list"></div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:10px">
-          <button class="cmd" id="scn-export-btn">Export JSON</button>
-          <button class="cmd" id="scn-import-btn">Import JSON</button>
-        </div>
-        <input type="file" id="scn-import-file" accept="application/json" style="display:none">
-      </div>
+<!-- Scenarios moved to settings-section -->
     </div>
 
     <div>
@@ -813,6 +624,244 @@
       </div>
     </div>
   </div>
+
+  <section class="settings-section">
+    <h2 class="settings-h2">Optimization · Algorithm · Map</h2>
+    <div class="settings-sub">All the tunable controls live here. The map above re-runs against whatever you dial.</div>
+    <div class="settings-grid">
+      <div>
+        <div class="panel">
+          <h3>Run parameters</h3>
+          <div>
+            <div class="label">Iterations</div>
+            <input class="nin" type="number" id="in-iters" value="10000" min="100" max="500000" step="500" title="ReCom moves to attempt.">
+          </div>
+          <div style="margin-top:12px">
+            <div class="label">Population tolerance</div>
+            <div class="slider-track" id="tol-track">
+              <div class="slider-fill" id="tol-fill"></div>
+              <div class="slider-thumb" id="tol-thumb"></div>
+            </div>
+            <div style="font-family:var(--mono);font-weight:600;font-size:12px;color:var(--ink);font-variant-numeric:tabular-nums" id="tol-label">±10.0%</div>
+          </div>
+          <div style="margin-top:12px">
+            <div class="label">Annealing temperature</div>
+            <input class="nin" type="number" id="in-temp" value="0" min="0" max="10000" step="10" title="T=0 greedy ReCom. T>0 = simulated annealing.">
+            <div class="hint">T=0 greedy. Higher = more exploration.</div>
+          </div>
+          <div style="margin-top:12px">
+            <div class="label">Polish flips per ReCom step</div>
+            <input class="nin" type="number" id="in-flips" value="3" min="0" max="50" step="1">
+          </div>
+          <div style="margin-top:12px">
+            <div class="label">RNG seed</div>
+            <div style="display:grid;grid-template-columns:1fr auto;gap:6px">
+              <input class="nin" type="number" id="in-seed" value="42" min="0" max="2147483647" step="1">
+              <button class="toggle-btn" id="btn-seed-lock" title="Lock = reuse the seed. Auto = fresh each run.">Auto</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <h3>Advanced algorithm</h3>
+          <div>
+            <div class="label">Annealing schedule</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px">
+              <button class="toggle-btn active" data-anneal="linear">Linear</button>
+              <button class="toggle-btn" data-anneal="exp">Exponential</button>
+              <button class="toggle-btn" data-anneal="const">Constant</button>
+            </div>
+          </div>
+          <div style="margin-top:12px">
+            <div class="label">Multi-restart (best of N)</div>
+            <input class="nin" type="number" id="in-restarts" value="1" min="1" max="50" step="1">
+          </div>
+          <div style="margin-top:12px">
+            <div class="label">Auto-polish after run</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px">
+              <button class="toggle-btn" data-autopolish="off">Off</button>
+              <button class="toggle-btn active" data-autopolish="on">On</button>
+            </div>
+          </div>
+          <div style="margin-top:12px">
+            <div class="label">Speed throttle (ms / batch)</div>
+            <input type="range" id="in-throttle" min="0" max="500" step="10" value="0">
+            <div style="font-family:var(--mono);font-size:11px;color:var(--muted);margin-top:2px"><span id="throttle-val">0</span>ms</div>
+          </div>
+          <button class="cmd" id="btn-step" style="margin-top:12px">Step (1 iter)</button>
+        </div>
+
+        <div class="panel">
+          <h3>Stop conditions</h3>
+          <div class="hint" style="margin-top:0">Run aborts when ANY armed condition is met.</div>
+          <div style="margin-top:10px">
+            <div class="label">Stop when popDev ≤</div>
+            <div style="display:grid;grid-template-columns:1fr auto;gap:6px">
+              <input class="nin" type="number" id="stop-popdev" value="0.5" min="0" max="100" step="0.1">
+              <button class="toggle-btn" data-stopon="popdev">Off</button>
+            </div>
+          </div>
+          <div style="margin-top:10px">
+            <div class="label">Stop when İkt seats ≥</div>
+            <div style="display:grid;grid-template-columns:1fr auto;gap:6px">
+              <input class="nin" type="number" id="stop-ikt" value="350" min="1" max="800" step="1">
+              <button class="toggle-btn" data-stopon="ikt">Off</button>
+            </div>
+          </div>
+          <div style="margin-top:10px">
+            <div class="label">Stop when Muh seats ≥</div>
+            <div style="display:grid;grid-template-columns:1fr auto;gap:6px">
+              <input class="nin" type="number" id="stop-muh" value="350" min="1" max="800" step="1">
+              <button class="toggle-btn" data-stopon="muh">Off</button>
+            </div>
+          </div>
+          <div style="margin-top:10px">
+            <div class="label">Stop after N seconds</div>
+            <div style="display:grid;grid-template-columns:1fr auto;gap:6px">
+              <input class="nin" type="number" id="stop-time" value="60" min="5" max="3600" step="5">
+              <button class="toggle-btn" data-stopon="time">Off</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <div class="panel">
+          <h3>Optimization</h3>
+          <div class="label">Presets</div>
+          <div class="presets">
+            <button class="toggle-btn" data-preset="antimander" title="Antimander balanced: efficiency gap + competitiveness + compactness.">Antimander</button>
+            <button class="toggle-btn" data-preset="compactness" title="Tight, compact districts. Partisan blind.">Compactness</button>
+            <button class="toggle-btn" data-preset="partisan" title="Partisan fairness: minimize efficiency gap and mean–median.">Partisan fair</button>
+            <button class="toggle-btn" data-preset="competitive" title="Competitive races: minimize landslide margins.">Competitive</button>
+            <button class="toggle-btn" data-preset="provinces" title="Keep districts inside il boundaries.">İl-preserving</button>
+            <button class="toggle-btn" data-preset="poponly" title="Population balance only.">Pop only</button>
+            <button class="toggle-btn" data-preset="proiktidar" title="UNFAIR: maximize İktidar seats.">Pro-İktidar</button>
+            <button class="toggle-btn" data-preset="promuh" title="UNFAIR: maximize Muhalefet seats.">Pro-Muhalefet</button>
+            <button class="toggle-btn" data-preset="maxasym" title="Maximize partisan asymmetry.">Max asymmetry</button>
+            <button class="toggle-btn" data-preset="proportional" title="Proportional representation.">Proportional</button>
+            <button class="toggle-btn" data-preset="random" title="Baseline / sanity check.">Random walk</button>
+            <button class="toggle-btn" data-preset="balanced" title="Everything at moderate weight.">Balanced</button>
+          </div>
+          <div class="label" style="margin-top:14px">Weights</div>
+          <div class="weight-row" data-key="cutEdges">
+            <span class="weight-name">Compactness (cut edges)</span>
+            <span class="weight-val">1</span>
+            <input type="range" data-weight="cutEdges" min="0" max="10" step="0.5" value="1">
+          </div>
+          <div class="weight-row" data-key="popDev">
+            <span class="weight-name">Population balance</span>
+            <span class="weight-val">50</span>
+            <input type="range" data-weight="popDev" min="0" max="100" step="5" value="50">
+          </div>
+          <div class="weight-row zero" data-key="effGap">
+            <span class="weight-name">Efficiency gap</span>
+            <span class="weight-val">0</span>
+            <input type="range" data-weight="effGap" min="-50" max="50" step="1" value="0">
+          </div>
+          <div class="weight-row zero" data-key="competitiveness">
+            <span class="weight-name">Competitiveness</span>
+            <span class="weight-val">0</span>
+            <input type="range" data-weight="competitiveness" min="0" max="50" step="1" value="0">
+          </div>
+          <div class="weight-row zero" data-key="meanMedian">
+            <span class="weight-name">Mean–median</span>
+            <span class="weight-val">0</span>
+            <input type="range" data-weight="meanMedian" min="0" max="50" step="1" value="0">
+          </div>
+          <div class="weight-row zero" data-key="ilSplits">
+            <span class="weight-name">İl-split penalty</span>
+            <span class="weight-val">0</span>
+            <input type="range" data-weight="ilSplits" min="0" max="20" step="0.5" value="0">
+          </div>
+          <div class="weight-row zero" data-key="partisanAdv">
+            <span class="weight-name">Partisan tilt (− Muh ← 0 → + İkt)</span>
+            <span class="weight-val">0</span>
+            <input type="range" data-weight="partisanAdv" min="-100" max="100" step="1" value="0" title="Internally ×10. Positive = İkt gerry; negative = Muh gerry.">
+          </div>
+          <div class="weight-row zero" data-key="lopsidedWins">
+            <span class="weight-name">Lopsided-wins penalty</span>
+            <span class="weight-val">0</span>
+            <input type="range" data-weight="lopsidedWins" min="0" max="50" step="1" value="0">
+          </div>
+          <div class="weight-row zero" data-key="packCrack">
+            <span class="weight-name">Pack / crack variance</span>
+            <span class="weight-val">0</span>
+            <input type="range" data-weight="packCrack" min="0" max="50" step="1" value="0">
+          </div>
+          <button class="toggle-btn" id="btn-reset-weights" style="margin-top:10px;width:100%">Reset all weights</button>
+        </div>
+      </div>
+
+      <div>
+        <div class="panel">
+          <h3>Map appearance</h3>
+          <div class="label">Color mode</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:12px">
+            <button class="toggle-btn active" id="color-districts">Districts</button>
+            <button class="toggle-btn" id="color-partisan">Partisan</button>
+          </div>
+          <div class="weight-row">
+            <span class="weight-name">District border width</span>
+            <span class="weight-val" id="map-distwidth-val">1.1</span>
+            <input type="range" id="map-distwidth" min="0.3" max="3" step="0.1" value="1.1">
+          </div>
+          <div class="weight-row">
+            <span class="weight-name">Mahalle border</span>
+            <span class="weight-val" id="map-mahopacity-val">10%</span>
+            <input type="range" id="map-mahopacity" min="0" max="50" step="2" value="10">
+          </div>
+          <div class="weight-row">
+            <span class="weight-name">Tossup band</span>
+            <span class="weight-val" id="map-tossupband-val">±3%</span>
+            <input type="range" id="map-tossupband" min="0" max="15" step="0.5" value="3">
+          </div>
+          <div style="margin-top:12px">
+            <div class="label">Palette (Districts mode)</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px">
+              <button class="toggle-btn active" data-palette="golden">Golden</button>
+              <button class="toggle-btn" data-palette="spectral">Spectral</button>
+              <button class="toggle-btn" data-palette="categorical">Cat10</button>
+            </div>
+          </div>
+          <div style="margin-top:12px">
+            <div class="label">District labels</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:4px">
+              <button class="toggle-btn active" data-labels="off">Off</button>
+              <button class="toggle-btn" data-labels="num">#</button>
+              <button class="toggle-btn" data-labels="share">Share</button>
+              <button class="toggle-btn" data-labels="margin">Margin</button>
+            </div>
+          </div>
+          <div style="margin-top:12px">
+            <div class="label">İl (province) borders</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px">
+              <button class="toggle-btn active" data-ilbord="off">Off</button>
+              <button class="toggle-btn" data-ilbord="soft">Soft</button>
+              <button class="toggle-btn" data-ilbord="bold">Bold</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <h3>Scenarios</h3>
+          <div class="label">Save current</div>
+          <div style="display:grid;grid-template-columns:1fr auto;gap:6px">
+            <input class="nin" type="text" id="scn-name" placeholder="Name (optional)" autocomplete="off">
+            <button class="toggle-btn" id="scn-save">Save</button>
+          </div>
+          <div class="hint">Saves the active region's assignment plus current weights, tolerance, and VPD target.</div>
+          <div class="label" style="margin-top:14px">Saved</div>
+          <div id="scn-list"></div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:10px">
+            <button class="cmd" id="scn-export-btn">Export JSON</button>
+            <button class="cmd" id="scn-import-btn">Import JSON</button>
+          </div>
+          <input type="file" id="scn-import-file" accept="application/json" style="display:none">
+        </div>
+      </div>
+    </div>
+  </section>
 </div>
 
 <!-- ═══════════════════════════════════════════════════════════════════
@@ -3334,17 +3383,32 @@ function recolorRegion(key) {
     redrawDistrictBorders(key);
     return;
   }
+  // National-slice mode: this region is showing a slice of the global
+  // assignment. Compute per-district shares using ALL regions' data so
+  // a district's color reflects its real partisan composition, not the
+  // partial slice in this region. Same global district = same color.
+  const nat = state.regions.national;
+  const isNatSlice = nat && r._natSlice && r.assignment === r._natSlice && nat.assignment;
   if (state.colorMode === 'districts') {
     const k = r.k || (Math.max(...r.assignment) + 1);
     if (!r._palette || r._palette.length !== k) r._palette = buildPalette(k);
     const pal = r._palette;
     for (let i = 0; i < r.N; i++) els[i].setAttribute('fill', pal[r.assignment[i]]);
   } else {
-    const k = r.k || (Math.max(...r.assignment) + 1);
-    const m = new Float64Array(k), kk = new Float64Array(k);
-    for (let i = 0; i < r.N; i++) { m[r.assignment[i]] += r.muh[i]; kk[r.assignment[i]] += r.ikt[i]; }
-    const partisan = new Array(k);
-    for (let d = 0; d < k; d++) { const t = m[d] + kk[d]; partisan[d] = t > 0 ? m[d] / t : 0.5; }
+    let partisan;
+    if (isNatSlice) {
+      const k = nat.k;
+      const m = new Float64Array(k), kk = new Float64Array(k);
+      for (let g = 0; g < nat.N; g++) { m[nat.assignment[g]] += nat.muh[g]; kk[nat.assignment[g]] += nat.ikt[g]; }
+      partisan = new Array(k);
+      for (let d = 0; d < k; d++) { const t = m[d] + kk[d]; partisan[d] = t > 0 ? m[d] / t : 0.5; }
+    } else {
+      const k = r.k || (Math.max(...r.assignment) + 1);
+      const m = new Float64Array(k), kk = new Float64Array(k);
+      for (let i = 0; i < r.N; i++) { m[r.assignment[i]] += r.muh[i]; kk[r.assignment[i]] += r.ikt[i]; }
+      partisan = new Array(k);
+      for (let d = 0; d < k; d++) { const t = m[d] + kk[d]; partisan[d] = t > 0 ? m[d] / t : 0.5; }
+    }
     r._partisan = partisan;
     for (let i = 0; i < r.N; i++) els[i].setAttribute('fill', partisanColor(partisan[r.assignment[i]]));
   }
@@ -3594,13 +3658,29 @@ function ensureDistrictStats(r) {
   if (r._statsValid) return r._stats;
   const k = r.k;
   if (!k || !r.assignment) { r._stats = null; return null; }
-  const ideal = r.totalPop / k;
+  // National-slice mode: r.assignment is a per-region view of a global
+  // assignment whose districts span multiple regions. Aggregating only
+  // the local slice would compare a fragment to the national ideal —
+  // giving the +544% popDev bug. Use the WHOLE national assignment and
+  // its totalPop instead.
+  const nat = state.regions.national;
+  const isNatSlice = nat && r._natSlice && r.assignment === r._natSlice && nat.assignment && nat.N;
+  const ideal = isNatSlice ? (nat.totalPop / k) : (r.totalPop / k);
   const stats = new Array(k);
   for (let d = 0; d < k; d++) stats[d] = { pop: 0, muh: 0, ikt: 0, n: 0 };
-  for (let i = 0; i < r.N; i++) {
-    const d = r.assignment[i];
-    const s = stats[d];
-    s.pop += r.pop[i]; s.muh += r.muh[i]; s.ikt += r.ikt[i]; s.n++;
+  if (isNatSlice) {
+    for (let g = 0; g < nat.N; g++) {
+      const d = nat.assignment[g];
+      const s = stats[d];
+      if (!s) continue;
+      s.pop += nat.pop[g]; s.muh += nat.muh[g]; s.ikt += nat.ikt[g]; s.n++;
+    }
+  } else {
+    for (let i = 0; i < r.N; i++) {
+      const d = r.assignment[i];
+      const s = stats[d];
+      s.pop += r.pop[i]; s.muh += r.muh[i]; s.ikt += r.ikt[i]; s.n++;
+    }
   }
   for (let d = 0; d < k; d++) {
     const s = stats[d];
