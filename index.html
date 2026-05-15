@@ -245,14 +245,6 @@
     </div>
     <div class="title-right">
       <div>
-        <div class="micro">Tool</div>
-        <div style="display:flex;gap:0;margin-top:2px">
-          <button class="toggle-btn active" id="tool-tr" title="ReCom on Türkiye 2023 milletvekili data (this tool)">TR/26</button>
-          <a class="toggle-btn" id="tool-antimander" href="https://antimander.org" target="_blank" rel="noopener noreferrer" title="Antimander — open in new tab" style="text-decoration:none">Antimander ↗</a>
-        </div>
-      </div>
-      <div class="vrule"></div>
-      <div>
         <div class="micro">National electorate</div>
         <div id="hdr-electorate" style="font:800 14px ui-monospace,monospace;color:var(--ink)">—</div>
       </div>
@@ -301,10 +293,12 @@
 
       <div class="panel">
         <h3>Score</h3>
-        <div class="check-row on" data-key="cutEdges"><div class="box"></div><div class="lbl">Cut edges</div></div>
+        <button class="cmd" id="btn-antimander-preset" style="width:100%;margin-bottom:8px" title="Antimander's fair-redistricting bundle: minimize efficiency gap, maximize competitiveness, keep districts compact (cut-edge proxy), with population balance as hard constraint.">Antimander fair preset</button>
+        <div class="check-row on" data-key="cutEdges"><div class="box"></div><div class="lbl">Cut edges (compactness)</div></div>
         <div class="check-row on" data-key="popDev"><div class="box"></div><div class="lbl">Population balance</div></div>
-        <div class="check-row" data-key="meanMedian"><div class="box"></div><div class="lbl">Mean–median</div></div>
         <div class="check-row" data-key="effGap"><div class="box"></div><div class="lbl">Efficiency gap</div></div>
+        <div class="check-row" data-key="competitiveness"><div class="box"></div><div class="lbl">Competitiveness</div></div>
+        <div class="check-row" data-key="meanMedian"><div class="box"></div><div class="lbl">Mean–median</div></div>
         <div class="check-row" data-key="ilSplits"><div class="box"></div><div class="lbl">İl splits penalty</div></div>
       </div>
 
@@ -353,6 +347,7 @@
         <div class="metric"><div class="v" id="m-popdev">—</div><div class="k">Pop. dev (max)</div></div>
         <div class="metric"><div class="v" id="m-cutedges">—</div><div class="k">Cut edges</div></div>
         <div class="metric"><div class="v" id="m-effgap">—</div><div class="k">Efficiency gap</div></div>
+        <div class="metric"><div class="v" id="m-compet">—</div><div class="k">Competitiveness</div></div>
         <div class="metric"><div class="v" id="m-meanmed">—</div><div class="k">Mean–median</div></div>
         <div class="metric">
           <div class="v" id="m-seats">—</div>
@@ -746,9 +741,9 @@ function scoreFromState(S, weights) {
     }
     s += weights.popDev * (maxDev * 100) * (maxDev * 100);
   }
-  if (weights.meanMedian || weights.effGap) {
+  if (weights.meanMedian || weights.effGap || weights.competitiveness) {
     const k = S.k;
-    let mean = 0, wd = 0, wr = 0, total = 0;
+    let mean = 0, wd = 0, wr = 0, total = 0, marginSum = 0;
     const shares = new Float64Array(k);
     for (let d = 0; d < k; d++) {
       const t = S.muhs[d] + S.ikts[d];
@@ -759,6 +754,7 @@ function scoreFromState(S, weights) {
         else          { wd += sh * t; wr += (0.5 - sh) * t; }
         total += t;
       }
+      if (weights.competitiveness) marginSum += 2 * Math.abs(sh - 0.5);
     }
     mean /= k;
     if (weights.meanMedian) {
@@ -771,6 +767,10 @@ function scoreFromState(S, weights) {
       const eg = total > 0 ? (wd - wr) / total : 0;
       s += weights.effGap * (eg * 100) * (eg * 100);
     }
+    if (weights.competitiveness) {
+      const mm = (marginSum / k) * 100;
+      s += weights.competitiveness * mm * mm;
+    }
   }
   if (weights.ilSplits) s += weights.ilSplits * S.ilSplits;
   return s;
@@ -782,7 +782,7 @@ function metricsFromState(S) {
   let maxDev = 0;
   let mWin = 0, kWin = 0;
   let wd = 0, wr = 0, total = 0;
-  let mean = 0;
+  let mean = 0, marginSum = 0;
   const shares = new Float64Array(k);
   for (let d = 0; d < k; d++) {
     const dev = Math.abs(S.pops[d] - ideal) / ideal;
@@ -790,6 +790,7 @@ function metricsFromState(S) {
     const t = S.muhs[d] + S.ikts[d];
     const sh = t > 0 ? S.muhs[d] / t : 0.5;
     shares[d] = sh; mean += sh;
+    marginSum += 2 * Math.abs(sh - 0.5);
     if (sh > 0.5) { mWin++; wd += (sh - 0.5) * t; wr += (1 - sh) * t; }
     else          { kWin++; wd += sh * t; wr += (0.5 - sh) * t; }
     total += t;
@@ -802,6 +803,7 @@ function metricsFromState(S) {
     cutEdges: S.cutEdges,
     effGap: total > 0 ? (wd - wr) / total : 0,
     meanMed: mean - median,
+    competitiveness: marginSum / k,
     muhSeats: mWin, iktSeats: kWin,
     ilSplits: S.ilSplits,
   };
@@ -955,9 +957,9 @@ function recomStepInc(S, tol, weights, T, rng) {
     }
     proposed += weights.popDev * (maxDev * 100) * (maxDev * 100);
   }
-  if (weights.meanMedian || weights.effGap) {
+  if (weights.meanMedian || weights.effGap || weights.competitiveness) {
     const k = S.k;
-    let mean = 0, wdv = 0, wrv = 0, total = 0;
+    let mean = 0, wdv = 0, wrv = 0, total = 0, marginSum = 0;
     const shares = new Float64Array(k);
     for (let d = 0; d < k; d++) {
       const muh = (d === d1) ? newMuh_d1 : (d === d2) ? newMuh_d2 : S.muhs[d];
@@ -970,6 +972,7 @@ function recomStepInc(S, tol, weights, T, rng) {
         else          { wdv += sh * t; wrv += (0.5 - sh) * t; }
         total += t;
       }
+      if (weights.competitiveness) marginSum += 2 * Math.abs(sh - 0.5);
     }
     mean /= k;
     if (weights.meanMedian) {
@@ -981,6 +984,10 @@ function recomStepInc(S, tol, weights, T, rng) {
     if (weights.effGap) {
       const eg = total > 0 ? (wdv - wrv) / total : 0;
       proposed += weights.effGap * (eg * 100) * (eg * 100);
+    }
+    if (weights.competitiveness) {
+      const mm = (marginSum / k) * 100;
+      proposed += weights.competitiveness * mm * mm;
     }
   }
   if (weights.ilSplits) proposed += weights.ilSplits * newIlSplits;
@@ -1186,8 +1193,8 @@ function flipStep(S, weights, rng) {
       }
       newScore += weights.popDev * (maxDev * 100) * (maxDev * 100);
     }
-    if (weights.meanMedian || weights.effGap) {
-      let mean = 0, wd = 0, wr = 0, total = 0;
+    if (weights.meanMedian || weights.effGap || weights.competitiveness) {
+      let mean = 0, wd = 0, wr = 0, total = 0, marginSum = 0;
       const shares = new Float64Array(kk);
       for (let d = 0; d < kk; d++) {
         const m = (d === dFrom) ? newMuhFrom : (d === dTo) ? newMuhTo : S.muhs[d];
@@ -1200,6 +1207,7 @@ function flipStep(S, weights, rng) {
           else          { wd += sh * t; wr += (0.5 - sh) * t; }
           total += t;
         }
+        if (weights.competitiveness) marginSum += 2 * Math.abs(sh - 0.5);
       }
       mean /= kk;
       if (weights.meanMedian) {
@@ -1211,6 +1219,10 @@ function flipStep(S, weights, rng) {
       if (weights.effGap) {
         const eg = total > 0 ? (wd - wr) / total : 0;
         newScore += weights.effGap * (eg * 100) * (eg * 100);
+      }
+      if (weights.competitiveness) {
+        const mm = (marginSum / kk) * 100;
+        newScore += weights.competitiveness * mm * mm;
       }
     }
     if (weights.ilSplits) newScore += weights.ilSplits * newIlSplits;
@@ -1338,7 +1350,7 @@ self.onmessage = (e) => {
     const polish = !!m.polish;
     const rng = mkRng(m.seed | 0);
     // Polish weights: only popDev matters during flip phase
-    const wPolish = { cutEdges: 0, popDev: 1, ilSplits: 0, meanMedian: 0, effGap: 0 };
+    const wPolish = { cutEdges: 0, popDev: 1, ilSplits: 0, meanMedian: 0, effGap: 0, competitiveness: 0 };
 
     let S;
     if (m.type === 'continue') {
@@ -1476,7 +1488,7 @@ const state = {
   active: 'national',   // 'national' or a region key
   workers: {},          // region key -> Worker (one worker per region, run in parallel)
   vpd: 100000,
-  weights: { cutEdges: 1, popDev: 50, meanMedian: 0, effGap: 0, ilSplits: 0 },
+  weights: { cutEdges: 1, popDev: 50, meanMedian: 0, effGap: 0, competitiveness: 0, ilSplits: 0 },
   tol: 0.10,
   scoreHist: [],
   colorMode: 'districts',
@@ -1610,13 +1622,26 @@ document.querySelectorAll('.check-row').forEach(el => {
   };
 });
 function defaultWeight(k) {
-  if (k === 'cutEdges')   return 1;
-  if (k === 'popDev')     return 50;
-  if (k === 'meanMedian') return 5;
-  if (k === 'effGap')     return 5;
-  if (k === 'ilSplits')   return 2;
+  if (k === 'cutEdges')        return 1;
+  if (k === 'popDev')          return 50;
+  if (k === 'meanMedian')      return 5;
+  if (k === 'effGap')          return 5;
+  if (k === 'competitiveness') return 5;
+  if (k === 'ilSplits')        return 2;
   return 1;
 }
+
+// Antimander's fair-redistricting bundle: minimize efficiency gap +
+// maximize competitiveness + keep cut-edge compactness, with population
+// balance as a hard constraint (the existing tolerance slider).
+$('btn-antimander-preset').onclick = () => {
+  const preset = { cutEdges: 1, popDev: 50, effGap: 5, competitiveness: 5, meanMedian: 0, ilSplits: 0 };
+  for (const [k, w] of Object.entries(preset)) {
+    state.weights[k] = w;
+    const row = document.querySelector(`.check-row[data-key="${k}"]`);
+    if (row) row.classList.toggle('on', w > 0);
+  }
+};
 
 $('color-districts').onclick = () => { state.colorMode = 'districts'; setColorMode(); };
 $('color-partisan').onclick  = () => { state.colorMode = 'partisan';  setColorMode(); };
@@ -2403,13 +2428,14 @@ function drawLegend() {
 function updateMetricsPanel() {
   const m = state.active === 'national' ? aggregatedMetrics() : state.regions[state.active]?.metrics;
   if (!m) {
-    ['m-popdev','m-cutedges','m-effgap','m-meanmed','m-seats'].forEach(id => $(id).textContent = '—');
+    ['m-popdev','m-cutedges','m-effgap','m-compet','m-meanmed','m-seats'].forEach(id => $(id).textContent = '—');
     $('seats-bar').style.display = 'none';
     return;
   }
   $('m-popdev').textContent  = (m.popDev * 100).toFixed(2) + '%';
   $('m-cutedges').textContent = m.cutEdges.toLocaleString();
   $('m-effgap').textContent  = m.effGap == null ? '—' : (m.effGap * 100).toFixed(2) + '%';
+  $('m-compet').textContent  = m.competitiveness == null ? '—' : (m.competitiveness * 100).toFixed(1) + '% margin';
   $('m-meanmed').textContent = m.meanMed == null ? '—' : (m.meanMed * 100).toFixed(2) + '%';
   $('m-seats').textContent   = `${m.muhSeats} / ${m.iktSeats}`;
   const total = m.muhSeats + m.iktSeats;
@@ -2430,7 +2456,7 @@ function aggregatedMetrics() {
   // Aggregate effGap and meanMed across ALL districts in ALL regions.
   // effGap: sum (wasted_dem - wasted_rep) across districts / sum(total_votes)
   // meanMed: mean(shares) - median(shares) over all national districts
-  let totWd = 0, totWr = 0, totVotes = 0;
+  let totWd = 0, totWr = 0, totVotes = 0, marginSum = 0;
   const allShares = [];
   for (const meta of REGIONS) {
     const r = state.regions[meta.key];
@@ -2453,13 +2479,14 @@ function aggregatedMetrics() {
       if (t === 0) { allShares.push(0.5); continue; }
       const sh = m[d] / t;
       allShares.push(sh);
+      marginSum += 2 * Math.abs(sh - 0.5);
       if (sh > 0.5) { totWd += (sh - 0.5) * t; totWr += (1 - sh) * t; }
       else          { totWd += sh * t;          totWr += (0.5 - sh) * t; }
       totVotes += t;
     }
   }
   if (!any) return null;
-  let effGap = null, meanMed = null;
+  let effGap = null, meanMed = null, competitiveness = null;
   if (totVotes > 0) effGap = (totWd - totWr) / totVotes;
   if (allShares.length > 0) {
     const sorted = allShares.slice().sort((a, b) => a - b);
@@ -2469,8 +2496,9 @@ function aggregatedMetrics() {
     for (const s of sorted) mean += s;
     mean /= n;
     meanMed = mean - median;
+    competitiveness = marginSum / n;
   }
-  return { popDev, cutEdges, effGap, meanMed, muhSeats, iktSeats, ilSplits: ilSplitsTotal };
+  return { popDev, cutEdges, effGap, meanMed, competitiveness, muhSeats, iktSeats, ilSplits: ilSplitsTotal };
 }
 
 function drawScoreChart() {
