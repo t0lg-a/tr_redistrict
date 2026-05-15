@@ -551,6 +551,12 @@
           <button class="toggle-btn" data-preset="competitive" title="Competitive races: minimize landslide margins.">Competitive</button>
           <button class="toggle-btn" data-preset="provinces" title="Keep districts inside il (province) boundaries where possible.">İl-preserving</button>
           <button class="toggle-btn" data-preset="poponly" title="Population balance only. No compactness or fairness pressure.">Pop only</button>
+          <button class="toggle-btn" data-preset="proiktidar" title="UNFAIR: pack opposition voters into few districts and crack them across many — maximize İktidar seat count.">Pro-İktidar (gerrymander)</button>
+          <button class="toggle-btn" data-preset="promuh" title="UNFAIR: mirror of Pro-İktidar — maximize Muhalefet seat count.">Pro-Muhalefet (gerrymander)</button>
+          <button class="toggle-btn" data-preset="maxasym" title="Maximize partisan asymmetry — efficiency gap as far from zero as possible (worst-case partisan bias).">Max asymmetry</button>
+          <button class="toggle-btn" data-preset="proportional" title="Proportional representation: each party's seat share tracks its vote share — minimize mean–median gap.">Proportional</button>
+          <button class="toggle-btn" data-preset="random" title="No weights at all (random walk). Useful as a baseline / sanity check.">Random walk</button>
+          <button class="toggle-btn" data-preset="balanced" title="Everything turned on at moderate weight: a Pareto-ish balanced run.">Balanced</button>
         </div>
         <div class="label" style="margin-top:14px">Weights</div>
         <div class="weight-row" data-key="cutEdges">
@@ -582,6 +588,11 @@
           <span class="weight-name">İl-split penalty</span>
           <span class="weight-val">0</span>
           <input type="range" data-weight="ilSplits" min="0" max="10" step="0.5" value="0">
+        </div>
+        <div class="weight-row zero" data-key="partisanAdv">
+          <span class="weight-name">Partisan tilt (− Muh ← 0 → + İkt)</span>
+          <span class="weight-val">0</span>
+          <input type="range" data-weight="partisanAdv" min="-30" max="30" step="1" value="0" title="Signed weight. Positive = gerrymander toward İktidar (minimize Muhalefet seat count). Negative = gerrymander toward Muhalefet. Zero = no partisan tilt.">
         </div>
       </div>
 
@@ -616,6 +627,7 @@
           <button class="cmd" id="btn-pause" disabled>Pause</button>
         </div>
         <button class="cmd go" id="btn-runall" disabled style="margin-bottom:8px">Run all 7</button>
+        <button class="cmd go" id="btn-runtr" disabled style="margin-bottom:8px" title="Run ReCom on the entire country as ONE graph (51K mahalle, k = total national seats). Cross-region adjacency built from shared polygon vertices.">Run Türkiye (national)</button>
         <button class="cmd" id="btn-polish" disabled style="margin-bottom:8px" title="Single-mahalle flip moves to push popDev below ReCom's tolerance floor. Run after a normal run is done.">Polish (drop popDev)</button>
         <button class="cmd" id="btn-reset" disabled style="margin-bottom:8px">Reset region</button>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
@@ -1077,9 +1089,9 @@ function scoreFromState(S, weights) {
     }
     s += weights.popDev * (maxDev * 100) * (maxDev * 100);
   }
-  if (weights.meanMedian || weights.effGap || weights.competitiveness) {
+  if (weights.meanMedian || weights.effGap || weights.competitiveness || weights.partisanAdv) {
     const k = S.k;
-    let mean = 0, wd = 0, wr = 0, total = 0, marginSum = 0;
+    let mean = 0, wd = 0, wr = 0, total = 0, marginSum = 0, muhWins = 0;
     const shares = new Float64Array(k);
     for (let d = 0; d < k; d++) {
       const t = S.muhs[d] + S.ikts[d];
@@ -1091,6 +1103,7 @@ function scoreFromState(S, weights) {
         total += t;
       }
       if (weights.competitiveness) marginSum += 2 * Math.abs(sh - 0.5);
+      if (weights.partisanAdv) muhWins += 1 / (1 + Math.exp(-20 * (sh - 0.5)));
     }
     mean /= k;
     if (weights.meanMedian) {
@@ -1106,6 +1119,11 @@ function scoreFromState(S, weights) {
     if (weights.competitiveness) {
       const mm = (marginSum / k) * 100;
       s += weights.competitiveness * mm * mm;
+    }
+    if (weights.partisanAdv) {
+      // Signed: positive weight gerrymanders toward İktidar (minimize muh wins);
+      // negative weight gerrymanders toward Muhalefet (maximize muh wins).
+      s += weights.partisanAdv * muhWins;
     }
   }
   if (weights.ilSplits) s += weights.ilSplits * S.ilSplits;
@@ -1293,9 +1311,9 @@ function recomStepInc(S, tol, weights, T, rng) {
     }
     proposed += weights.popDev * (maxDev * 100) * (maxDev * 100);
   }
-  if (weights.meanMedian || weights.effGap || weights.competitiveness) {
+  if (weights.meanMedian || weights.effGap || weights.competitiveness || weights.partisanAdv) {
     const k = S.k;
-    let mean = 0, wdv = 0, wrv = 0, total = 0, marginSum = 0;
+    let mean = 0, wdv = 0, wrv = 0, total = 0, marginSum = 0, muhWins = 0;
     const shares = new Float64Array(k);
     for (let d = 0; d < k; d++) {
       const muh = (d === d1) ? newMuh_d1 : (d === d2) ? newMuh_d2 : S.muhs[d];
@@ -1309,6 +1327,7 @@ function recomStepInc(S, tol, weights, T, rng) {
         total += t;
       }
       if (weights.competitiveness) marginSum += 2 * Math.abs(sh - 0.5);
+      if (weights.partisanAdv) muhWins += 1 / (1 + Math.exp(-20 * (sh - 0.5)));
     }
     mean /= k;
     if (weights.meanMedian) {
@@ -1325,6 +1344,7 @@ function recomStepInc(S, tol, weights, T, rng) {
       const mm = (marginSum / k) * 100;
       proposed += weights.competitiveness * mm * mm;
     }
+    if (weights.partisanAdv) proposed += weights.partisanAdv * muhWins;
   }
   if (weights.ilSplits) proposed += weights.ilSplits * newIlSplits;
 
@@ -1529,8 +1549,8 @@ function flipStep(S, weights, rng) {
       }
       newScore += weights.popDev * (maxDev * 100) * (maxDev * 100);
     }
-    if (weights.meanMedian || weights.effGap || weights.competitiveness) {
-      let mean = 0, wd = 0, wr = 0, total = 0, marginSum = 0;
+    if (weights.meanMedian || weights.effGap || weights.competitiveness || weights.partisanAdv) {
+      let mean = 0, wd = 0, wr = 0, total = 0, marginSum = 0, muhWins = 0;
       const shares = new Float64Array(kk);
       for (let d = 0; d < kk; d++) {
         const m = (d === dFrom) ? newMuhFrom : (d === dTo) ? newMuhTo : S.muhs[d];
@@ -1544,6 +1564,7 @@ function flipStep(S, weights, rng) {
           total += t;
         }
         if (weights.competitiveness) marginSum += 2 * Math.abs(sh - 0.5);
+        if (weights.partisanAdv) muhWins += 1 / (1 + Math.exp(-20 * (sh - 0.5)));
       }
       mean /= kk;
       if (weights.meanMedian) {
@@ -1560,6 +1581,7 @@ function flipStep(S, weights, rng) {
         const mm = (marginSum / kk) * 100;
         newScore += weights.competitiveness * mm * mm;
       }
+      if (weights.partisanAdv) newScore += weights.partisanAdv * muhWins;
     }
     if (weights.ilSplits) newScore += weights.ilSplits * newIlSplits;
 
@@ -1674,7 +1696,7 @@ self.onmessage = (e) => {
     const polish = !!m.polish;
     const rng = mkRng(m.seed | 0);
     // Polish weights: only popDev matters during flip phase
-    const wPolish = { cutEdges: 0, popDev: 1, ilSplits: 0, meanMedian: 0, effGap: 0, competitiveness: 0 };
+    const wPolish = { cutEdges: 0, popDev: 1, ilSplits: 0, meanMedian: 0, effGap: 0, competitiveness: 0, partisanAdv: 0 };
 
     let S;
     if (m.type === 'continue') {
@@ -1813,7 +1835,7 @@ const state = {
   active: 'national',   // 'national' or a region key
   workers: {},          // region key -> Worker (one worker per region, run in parallel)
   vpd: 100000,
-  weights: { cutEdges: 1, popDev: 50, meanMedian: 0, effGap: 0, competitiveness: 0, ilSplits: 0 },
+  weights: { cutEdges: 1, popDev: 50, meanMedian: 0, effGap: 0, competitiveness: 0, partisanAdv: 0, ilSplits: 0 },
   tol: 0.10,
   scoreHist: [],
   colorMode: 'districts',
@@ -1892,7 +1914,9 @@ function selectRegion(key) {
   drawLegend();
   updateMetricsPanel();
   if (key === 'national') {
-    state.scoreHist = nationalScoreHist();
+    const nat = state.regions.national;
+    state.scoreHist = nat?.scoreHist?.length ? nat.scoreHist : nationalScoreHist();
+    recolorAll();  // refresh paint to either national assignment or bg
   } else {
     const r = state.regions[key];
     state.scoreHist = r?.scoreHist || [];
@@ -1952,12 +1976,21 @@ window.addEventListener('mouseup',   () => tolDrag = false);
 // objective. Sliders below give continuous per-objective control; clicking
 // a preset just snaps all six sliders to a named configuration.
 const PRESETS = {
-  antimander:  { cutEdges: 5,  popDev: 50, effGap: 5,  competitiveness: 5,  meanMedian: 0, ilSplits: 0 },
-  compactness: { cutEdges: 10, popDev: 50, effGap: 0,  competitiveness: 0,  meanMedian: 0, ilSplits: 0 },
-  partisan:    { cutEdges: 1,  popDev: 50, effGap: 20, competitiveness: 0,  meanMedian: 5, ilSplits: 0 },
-  competitive: { cutEdges: 1,  popDev: 50, effGap: 0,  competitiveness: 20, meanMedian: 0, ilSplits: 0 },
-  provinces:   { cutEdges: 1,  popDev: 50, effGap: 0,  competitiveness: 0,  meanMedian: 0, ilSplits: 10 },
-  poponly:     { cutEdges: 0,  popDev: 50, effGap: 0,  competitiveness: 0,  meanMedian: 0, ilSplits: 0 },
+  antimander:   { cutEdges: 5,  popDev: 50, effGap: 5,   competitiveness: 5,  meanMedian: 0, partisanAdv: 0,   ilSplits: 0 },
+  compactness:  { cutEdges: 10, popDev: 50, effGap: 0,   competitiveness: 0,  meanMedian: 0, partisanAdv: 0,   ilSplits: 0 },
+  partisan:     { cutEdges: 1,  popDev: 50, effGap: 20,  competitiveness: 0,  meanMedian: 5, partisanAdv: 0,   ilSplits: 0 },
+  competitive:  { cutEdges: 1,  popDev: 50, effGap: 0,   competitiveness: 20, meanMedian: 0, partisanAdv: 0,   ilSplits: 0 },
+  provinces:    { cutEdges: 1,  popDev: 50, effGap: 0,   competitiveness: 0,  meanMedian: 0, partisanAdv: 0,   ilSplits: 10 },
+  poponly:      { cutEdges: 0,  popDev: 50, effGap: 0,   competitiveness: 0,  meanMedian: 0, partisanAdv: 0,   ilSplits: 0 },
+  // UNFAIR: maximize one party's seat count.
+  proiktidar:   { cutEdges: 1,  popDev: 50, effGap: 0,   competitiveness: 0,  meanMedian: 0, partisanAdv:  25, ilSplits: 0 },
+  promuh:       { cutEdges: 1,  popDev: 50, effGap: 0,   competitiveness: 0,  meanMedian: 0, partisanAdv: -25, ilSplits: 0 },
+  // Inverted effGap weight (negative) pushes the search AWAY from
+  // proportional outcomes — the worst-case partisan bias.
+  maxasym:      { cutEdges: 1,  popDev: 50, effGap: -20, competitiveness: 0,  meanMedian: 0, partisanAdv: 0,   ilSplits: 0 },
+  proportional: { cutEdges: 1,  popDev: 50, effGap: 10,  competitiveness: 5,  meanMedian: 15, partisanAdv: 0,  ilSplits: 0 },
+  random:       { cutEdges: 0,  popDev: 50, effGap: 0,   competitiveness: 0,  meanMedian: 0, partisanAdv: 0,   ilSplits: 0 },
+  balanced:     { cutEdges: 3,  popDev: 50, effGap: 3,   competitiveness: 3,  meanMedian: 3, partisanAdv: 0,   ilSplits: 3 },
 };
 function setWeight(k, w) {
   state.weights[k] = w;
@@ -2261,6 +2294,7 @@ $('btn-start').onclick   = startRun;
 $('btn-pause').onclick   = pauseToggle;
 $('btn-reset').onclick   = resetRegion;
 $('btn-runall').onclick  = startRunAll;
+$('btn-runtr').onclick   = startRunNational;
 $('btn-polish').onclick  = startPolish;
 $('btn-export').onclick  = exportGeoJSON;
 $('btn-export-png').onclick = exportMapPNG;
@@ -2273,25 +2307,25 @@ function status(l, r, isErr) {
 
 function updateButtons() {
   const isNat = state.active === 'national';
-  const r = isNat ? null : state.regions[state.active];
+  const natR = state.regions.national;
+  const natReady = !!(natR && natR.isNational && natR.adj);
+  const natRunning = isNat && state.running.has('national');
+  const r = isNat ? natR : state.regions[state.active];
   const allReady = REGIONS.every(m => state.regions[m.key]?.status && state.regions[m.key].status !== 'loading');
-  const activeRunning = !isNat && state.running.has(state.active);
+  const activeRunning = isNat ? natRunning : state.running.has(state.active);
   const anyRunning = state.running.size > 0;
   const allRunning = state.running.size === REGIONS.length;
   $('btn-start').disabled  = isNat || !r || r.status === 'loading' || activeRunning;
   $('btn-pause').disabled  = !anyRunning;
-  $('btn-reset').disabled  = isNat || !r || (r.status !== 'done' && r.status !== 'error') || activeRunning;
+  $('btn-reset').disabled  = (isNat ? !natR?.assignment : (!r || (r.status !== 'done' && r.status !== 'error'))) || activeRunning;
   $('btn-runall').disabled = !allReady || allRunning;
-  // Polish needs an existing optimized state to refine
-  $('btn-polish').disabled = isNat || !r || r.status !== 'done' || activeRunning;
-  $('btn-export').disabled = isNat ? !nationalHasAnyAssignment() : !r?.assignment;
-  $('btn-export-png').disabled = isNat ? !nationalHasAnyAssignment() : !r?.assignment;
-  if (isNat) $('btn-start').textContent = 'Pick region';
+  $('btn-runtr').disabled  = !natReady || natRunning;
+  $('btn-polish').disabled = isNat ? (!natR?.assignment || natR.status !== 'done' || natRunning)
+                                   : (!r || r.status !== 'done' || activeRunning);
+  $('btn-export').disabled = isNat ? !natR?.assignment : !r?.assignment;
+  $('btn-export-png').disabled = isNat ? !natR?.assignment : !r?.assignment;
+  if (isNat) $('btn-start').textContent = 'Pick region or Run Türkiye';
   else $('btn-start').textContent = `Run ${REGIONS.find(m => m.key === state.active)?.label || ''}`;
-}
-function nationalHasAnyAssignment() {
-  for (const meta of REGIONS) if (state.regions[meta.key]?.assignment) return true;
-  return false;
 }
 
 async function bootRegions() {
@@ -2325,9 +2359,24 @@ async function bootRegions() {
   }
 
   $('progress').style.display = 'none';
+  // Build the merged-Türkiye graph + spawn its worker so "Run Türkiye" is
+  // immediately available once the regional fetches complete.
+  $('progress-ttl').textContent = 'Building national graph…';
+  $('progress').style.display = 'flex';
+  $('progress-fill').style.width = '100%';
+  $('progress-pct').textContent = `${totalN_label(state)}`;
+  // setTimeout 0 lets the progress label paint before the synchronous build.
+  await new Promise(r => setTimeout(r, 0));
+  try { initNationalRegion(); } catch (e) { console.error(e); status('National graph build failed: ' + e.message, 'err'); }
+  $('progress').style.display = 'none';
   selectRegion('national');
   updateButtons();
-  status('Ready. Pick a region and Run, or Run all 7.', '');
+  status('Ready. Pick a region and Run, or Run all 7 / Türkiye.', '');
+}
+function totalN_label(s) {
+  let n = 0;
+  for (const meta of REGIONS) n += s.regions[meta.key]?.N || 0;
+  return `${n.toLocaleString('tr-TR')} mahalle`;
 }
 
 function setupSvg() {
@@ -2433,6 +2482,135 @@ function processRegion(meta, tj) {
   };
 }
 
+// === NATIONAL MODE ============================================================
+// Build a single merged graph spanning all 7 regions so ReCom can produce one
+// nation-wide redistricting (k = total seats). Cross-region adjacency is
+// recovered by shared-vertex matching: two polygons in different regions are
+// neighbors iff they share ≥2 polygon vertices (rounded to a 1e-5 lon/lat
+// grid, i.e. ~1m). Intra-region adjacency is taken from each region's existing
+// graph (which already includes intra-region island bridges).
+function visitPolygonCoords(geom, cb) {
+  if (!geom) return;
+  const t = geom.type;
+  if (t === 'Polygon') {
+    for (const ring of geom.coordinates) for (const c of ring) cb(c[0], c[1]);
+  } else if (t === 'MultiPolygon') {
+    for (const poly of geom.coordinates) for (const ring of poly) for (const c of ring) cb(c[0], c[1]);
+  }
+}
+function buildNationalGraph() {
+  // Sum offsets and totals
+  const offsets = {};
+  let totalN = 0, totalPop = 0;
+  for (const meta of REGIONS) {
+    const r = state.regions[meta.key];
+    if (!r || !r.adj) return null;
+    offsets[meta.key] = totalN;
+    totalN += r.N;
+    totalPop += r.totalPop;
+  }
+  const pop = new Float64Array(totalN);
+  const ikt = new Float64Array(totalN);
+  const muh = new Float64Array(totalN);
+  const il  = new Int32Array(totalN);
+  const regionId = new Int32Array(totalN);
+  const adj = new Array(totalN);
+  for (let i = 0; i < totalN; i++) adj[i] = new Set();
+
+  // Copy intra-region edges + per-node data, with global-index offset.
+  for (let ri = 0; ri < REGIONS.length; ri++) {
+    const meta = REGIONS[ri];
+    const r = state.regions[meta.key];
+    const o = offsets[meta.key];
+    for (let i = 0; i < r.N; i++) {
+      pop[o + i] = r.pop[i];
+      ikt[o + i] = r.ikt[i];
+      muh[o + i] = r.muh[i];
+      il [o + i] = r.il[i];
+      regionId[o + i] = ri;
+      for (const v of r.adj[i]) adj[o + i].add(o + v);
+    }
+  }
+
+  // Vertex hash → list of global node ids. Polygons sharing ≥2 vertices
+  // share an edge.
+  const vmap = new Map();
+  const push = (k, gid) => {
+    let list = vmap.get(k);
+    if (!list) { list = []; vmap.set(k, list); }
+    if (list[list.length - 1] !== gid) list.push(gid);
+  };
+  for (const meta of REGIONS) {
+    const r = state.regions[meta.key];
+    const o = offsets[meta.key];
+    for (let i = 0; i < r.N; i++) {
+      visitPolygonCoords(r.features[i].geometry, (lon, lat) => {
+        push(lon.toFixed(5) + ',' + lat.toFixed(5), o + i);
+      });
+    }
+  }
+  const pair = new Map();
+  for (const list of vmap.values()) {
+    if (list.length < 2) continue;
+    for (let a = 0; a < list.length; a++) {
+      const ai = list[a];
+      for (let b = a + 1; b < list.length; b++) {
+        const bi = list[b];
+        if (regionId[ai] === regionId[bi]) continue;  // intra-region: already linked
+        const key = ai < bi ? (ai + ',' + bi) : (bi + ',' + ai);
+        pair.set(key, (pair.get(key) || 0) + 1);
+      }
+    }
+  }
+  let nXEdges = 0;
+  for (const [key, c] of pair) {
+    if (c < 2) continue;
+    const [ai, bi] = key.split(',').map(Number);
+    adj[ai].add(bi); adj[bi].add(ai);
+    nXEdges++;
+  }
+  console.log(`[national] ${totalN} nodes, ${nXEdges} cross-region edges`);
+
+  return {
+    N: totalN, totalPop,
+    pop, ikt, muh, il, regionId, offsets,
+    adj: adj.map(s => Array.from(s)),
+    features: REGIONS.flatMap(m => state.regions[m.key].features),
+    label: 'Türkiye',
+  };
+}
+
+function initNationalRegion() {
+  const G = buildNationalGraph();
+  if (!G) return;
+  const w = new Worker(state.workerUrl);
+  w.onmessage = onWorkerMsg;
+  state.workers.national = w;
+  w.postMessage({
+    type: 'init', key: 'national',
+    adj: G.adj, pop: Array.from(G.pop), iktidar: Array.from(G.ikt),
+    muhalefet: Array.from(G.muh), il: Array.from(G.il),
+  });
+  // Replace the synthetic 'national' entry with a real one. Keep the same
+  // key so existing code paths (aggregatedMetrics fallback, selectRegion)
+  // continue to work; presence of `assignment` triggers national-real mode.
+  state.regions.national = {
+    ...G,
+    status: 'idle', assignment: null, bestScore: Infinity, scoreHist: [],
+    iter: 0, k: 0, metrics: null,
+    isNational: true,
+    borderEl: null,  // national runs don't draw merged district borders
+  };
+  // Flat pathEls array indexed by global node id, in the same order as
+  // buildNationalGraph's offsets. recolorPaths(diff) walks this directly.
+  state.pathEls.national = [];
+  for (const meta of REGIONS) {
+    const arr = state.pathEls[meta.key];
+    if (arr) for (const el of arr) state.pathEls.national.push(el);
+  }
+  updateButtons(); renderRegionList();
+}
+
 function buildAdjacency(tj) {
   const geoms = tj.objects.mahalle.geometries;
   const N = geoms.length;
@@ -2501,10 +2679,12 @@ function bridgeIslands(adj, features, N) {
 async function initWorkerPool() {
   // One worker per region — they run independently, so "Run all 7" can
   // saturate every available CPU core instead of being bottlenecked by
-  // a single worker thread.
+  // a single worker thread. An 8th worker is spun up later for the
+  // merged-Türkiye national run (see initNationalRegion).
   const src = document.getElementById('worker-src').textContent;
   const blob = new Blob([src], { type: 'application/javascript' });
   const url = URL.createObjectURL(blob);
+  state.workerUrl = url;
   state.workers = {};
   for (const meta of REGIONS) {
     const w = new Worker(url);
@@ -2537,11 +2717,19 @@ function onWorkerMsg(e) {
     // Recolor full region (initial build or final result)
     recolorRegion(m.key);
     if (state.active === m.key || state.active === 'national') {
-      state.scoreHist = state.active === 'national' ? nationalScoreHist() : r.scoreHist;
+      // National worker reports its own scoreHist on r=state.regions.national;
+      // when active=national but no national run yet, fall back to summing the
+      // 7 regional histories.
+      if (state.active === 'national') {
+        const nat = state.regions.national;
+        state.scoreHist = (nat?.scoreHist?.length) ? nat.scoreHist : nationalScoreHist();
+      } else {
+        state.scoreHist = r.scoreHist;
+      }
       drawScoreChart();
       updateMetricsPanel();
-      if (m.type === 'partition') status(`${r.label}: partition built`, `iter 0`);
-      else status(`${r.label}: done`, `iter ${m.iter ?? '?'} · best ${m.score?.toFixed?.(0) ?? '—'}`);
+      if (m.type === 'partition') status(`${r.label || m.key}: partition built`, `iter 0`);
+      else status(`${r.label || m.key}: done`, `iter ${m.iter ?? '?'} · best ${m.score?.toFixed?.(0) ?? '—'}`);
     }
 
     if (m.type === 'done') {
@@ -2572,7 +2760,12 @@ function onWorkerMsg(e) {
       r.scoreHist.push(m.score);
     }
     if (state.active === m.key || state.active === 'national') {
-      state.scoreHist = state.active === 'national' ? nationalScoreHist() : r.scoreHist;
+      if (state.active === 'national') {
+        const nat = state.regions.national;
+        state.scoreHist = (nat?.scoreHist?.length) ? nat.scoreHist : nationalScoreHist();
+      } else {
+        state.scoreHist = r.scoreHist;
+      }
       drawScoreChart();
       updateMetricsPanel();
       // For Run all 7, show aggregate progress instead of latest tick spam
@@ -2596,7 +2789,7 @@ function onWorkerMsg(e) {
 }
 
 function startRun() {
-  if (state.active === 'national') return;
+  if (state.active === 'national') return;  // national has its own CTA
   if (state.running.has(state.active)) return;
   runRegion(state.active);
 }
@@ -2608,6 +2801,16 @@ function startRunAll() {
     if (state.running.has(meta.key)) continue;
     runRegion(meta.key);
   }
+}
+
+// National run: ReCom on the merged 51K-mahalle graph with k = total seats.
+function startRunNational() {
+  const r = state.regions.national;
+  if (!r || !r.isNational || !state.workers.national) return;
+  if (state.running.has('national')) return;
+  state.active = 'national';
+  selectRegion('national');
+  runRegion('national');
 }
 
 function runRegion(key) {
@@ -2633,7 +2836,6 @@ function runRegion(key) {
 // with 3-6 mahalles each because the merged-tree pop sums are too coarse to find
 // a balanced cut — flips move one mahalle at a time across the boundary instead.
 function startPolish() {
-  if (state.active === 'national') return;
   const key = state.active;
   const r = state.regions[key];
   if (!r || r.status !== 'done') return;
@@ -2662,7 +2864,6 @@ function pauseToggle() {
 }
 
 function resetRegion() {
-  if (state.active === 'national') return;
   const r = state.regions[state.active];
   if (!r) return;
   if (state.running.has(state.active)) {
@@ -2783,6 +2984,7 @@ function ringAreaPx(ring, project) {
 }
 
 function redrawDistrictBorders(key, live) {
+  if (key === 'national') return;  // national borders span regions — no merged-arc topo to walk
   const r = state.regions[key];
   if (!r || !r.borderEl) return;
   if (!r.topo || !r.assignment) {
@@ -2884,7 +3086,56 @@ function redrawDistrictBorders(key, live) {
   r.borderEl.parentNode.appendChild(r.borderEl);
 }
 function recolorAll() {
+  // National mode: paint every regional path by the global national
+  // district assignment. Regional district borders get cleared because
+  // they'd be misleading (national districts can span regions).
+  if (state.active === 'national' && state.regions.national?.assignment) {
+    recolorNational();
+    return;
+  }
   for (const meta of REGIONS) recolorRegion(meta.key);
+}
+
+function recolorNational() {
+  const nat = state.regions.national;
+  if (!nat) return;
+  const cardBg = getCSSVar('--bg-2');
+  if (!nat.assignment) {
+    for (const meta of REGIONS) {
+      const els = state.pathEls[meta.key]; if (!els) continue;
+      for (const el of els) el.setAttribute('fill', cardBg);
+      const r = state.regions[meta.key];
+      if (r?.borderEl) r.borderEl.setAttribute('d', '');
+    }
+    return;
+  }
+  const k = nat.k || (Math.max(...nat.assignment) + 1);
+  if (state.colorMode === 'districts') {
+    if (!nat._palette || nat._palette.length !== k) nat._palette = buildPalette(k);
+    const pal = nat._palette;
+    for (const meta of REGIONS) {
+      const r = state.regions[meta.key]; if (!r) continue;
+      const els = state.pathEls[meta.key]; if (!els) continue;
+      const o = nat.offsets[meta.key];
+      for (let i = 0; i < r.N; i++) els[i].setAttribute('fill', pal[nat.assignment[o + i]]);
+    }
+  } else {
+    const m = new Float64Array(k), kk = new Float64Array(k);
+    for (let g = 0; g < nat.N; g++) { m[nat.assignment[g]] += nat.muh[g]; kk[nat.assignment[g]] += nat.ikt[g]; }
+    const partisan = new Array(k);
+    for (let d = 0; d < k; d++) { const t = m[d] + kk[d]; partisan[d] = t > 0 ? m[d] / t : 0.5; }
+    nat._partisan = partisan;
+    for (const meta of REGIONS) {
+      const r = state.regions[meta.key]; if (!r) continue;
+      const els = state.pathEls[meta.key]; if (!els) continue;
+      const o = nat.offsets[meta.key];
+      for (let i = 0; i < r.N; i++) els[i].setAttribute('fill', partisanColor(partisan[nat.assignment[o + i]]));
+    }
+  }
+  for (const meta of REGIONS) {
+    const r = state.regions[meta.key];
+    if (r?.borderEl) r.borderEl.setAttribute('d', '');
+  }
 }
 
 // ── Hover tooltip ────────────────────────────────────────────────────
@@ -3043,7 +3294,15 @@ function drawLegend() {
 }
 
 function updateMetricsPanel() {
-  const m = state.active === 'national' ? aggregatedMetrics() : state.regions[state.active]?.metrics;
+  // Prefer the national worker's own metrics when a national run has produced
+  // an assignment; fall back to aggregating the 7 regional results.
+  let m;
+  if (state.active === 'national') {
+    const nat = state.regions.national;
+    m = (nat?.assignment && nat.metrics) ? nat.metrics : aggregatedMetrics();
+  } else {
+    m = state.regions[state.active]?.metrics;
+  }
   if (!m) {
     ['m-popdev','m-cutedges','m-effgap','m-compet','m-meanmed','m-seats'].forEach(id => $(id).textContent = '—');
     $('seats-bar').style.display = 'none';
