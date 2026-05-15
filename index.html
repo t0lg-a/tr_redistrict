@@ -633,6 +633,8 @@
         </div>
         <button class="cmd go" id="btn-runil" disabled style="margin-top:10px;width:100%">Run İl</button>
         <button class="cmd" id="btn-exit-il" disabled style="margin-top:6px;width:100%">Exit İl mode</button>
+        <div class="label" style="margin-top:14px">District populations</div>
+        <div id="il-dist-list" style="font-family:var(--mono);font-size:11px;color:var(--muted);line-height:1.5;max-height:240px;overflow-y:auto">— run an il to see —</div>
       </div>
 
 <!-- Scenarios moved to settings-section -->
@@ -2842,7 +2844,10 @@ function openDistrictDrawer(regionKey, d) {
   const stats = ensureDistrictStats(r);
   if (!stats || !stats[d]) return;
   const s = stats[d];
-  const regionLabel = (REGIONS.find(x => x.key === regionKey) || {}).label || regionKey;
+  let regionLabel;
+  if (regionKey === 'il')        regionLabel = state.regions.il?.label || 'İl';
+  else if (regionKey === 'national') regionLabel = 'Türkiye';
+  else regionLabel = (REGIONS.find(x => x.key === regionKey) || {}).label || regionKey;
   $('dr-title').textContent = `${regionLabel} · #${d + 1}`;
   $('dr-share').textContent  = (s.share * 100).toFixed(1) + '%';
   $('dr-margin').textContent = (s.margin * 100).toFixed(1) + '%';
@@ -3110,10 +3115,20 @@ function processRegion(meta, tj) {
     el.dataset.region = meta.key; el.dataset.idx = i;
     el.style.cursor = 'pointer';
     el.addEventListener('click', () => {
-      // If region is already active and has districts, open the analytics
-      // drawer for the clicked mahalle's district. Otherwise select region.
       const cur = state.active;
       const r = state.regions[meta.key];
+      // İl mode: clicking a mahalle inside the il opens the drawer for its
+      // il-district. Clicks outside the il do nothing (those paths are hidden).
+      if (cur === 'il' && state.regions.il?.assignment) {
+        const il = state.regions.il;
+        const baseId = il.baseFromRegional?.get(meta.key + ':' + (+el.dataset.idx));
+        if (baseId == null) return;
+        const firstHalf = il.firstHalfOf[baseId];
+        const d = il.assignment[firstHalf];
+        if (Number.isFinite(d) && d >= 0) openDistrictDrawer('il', d);
+        return;
+      }
+      // National or regional click → drawer if active, else select region.
       if (cur === meta.key && r?.assignment) {
         const idx = +el.dataset.idx;
         const d = r.assignment[idx];
@@ -3417,6 +3432,7 @@ function onWorkerMsg(e) {
       }
       drawScoreChart();
       updateMetricsPanel();
+      if (m.key === 'il') renderIlDistList();
       if (m.type === 'partition') status(`${r.label || m.key}: partition built`, `iter 0`);
       else status(`${r.label || m.key}: done`, `iter ${m.iter ?? '?'} · best ${m.score?.toFixed?.(0) ?? '—'}`);
     }
@@ -3427,6 +3443,7 @@ function onWorkerMsg(e) {
       renderRegionList();
       updateButtons();
       redrawDistrictLabels();
+      if (m.key === 'il') { redrawIlDistrictBorders(); renderIlDistList(); }
       onRunFinished(m.key, !!m.aborted);
     }
     return;
@@ -3468,6 +3485,7 @@ function onWorkerMsg(e) {
       }
       drawScoreChart();
       updateMetricsPanel();
+      if (m.key === 'il') renderIlDistList();
       // For Run all 7, show aggregate progress instead of latest tick spam
       if (state.running.size > 1) {
         const total = state.running.size;
@@ -3596,11 +3614,15 @@ function buildIlGraph(ilCode, splitOn, splitMul) {
       adj[lid].add(firstHalfOf[otherBaseId]);
     }
   }
+  // Reverse map: regional (regionKey, idx) → base index, used by the click
+  // handler and the il-border drawer.
+  const baseFromRegional = new Map();
+  refs.forEach((s, b) => baseFromRegional.set(s.rk + ':' + s.idx, b));
   return {
     N, totalPop, ilCode, k,
     pop, ikt, muh, il,
     adj: adj.map(s => Array.from(s)),
-    refs, baseOf, halfIdx, nHalves,
+    refs, baseOf, halfIdx, nHalves, firstHalfOf, baseFromRegional,
     label: state.ilNames?.get(ilCode) ? `İl ${state.ilNames.get(ilCode)}` : `İl ${ilCode}`,
   };
 }
@@ -3681,10 +3703,19 @@ function zoomToIl(ilCode) {
 function exitIlMode() {
   if (state.running.has('il')) state.workers.il?.postMessage({ type: 'abort' });
   applyIlVisibility(null);
+  // Clear borders left behind by the synthetic-assignment trick
+  for (const meta of REGIONS) {
+    const r = state.regions[meta.key];
+    if (r?.borderEl) r.borderEl.setAttribute('d', '');
+  }
+  // Drop split-fill patterns so subsequent runs in non-il mode aren't tied
+  // to stale colors.
+  if (state._splitDefs) { state._splitDefs.remove(); state._splitDefs = null; state._splitCache = null; }
   if (state.regions.il) delete state.regions.il;
   if (state.workers.il) state.workers.il.terminate();
   delete state.workers.il;
   state.active = 'national';
+  $('il-dist-list').textContent = '— run an il to see —';
   if (state.zoom && state.zoomSvg) state.zoomSvg.transition().duration(300).call(state.zoom.transform, d3.zoomIdentity);
   selectRegion('national');
   renderRegionList(); updateButtons();
@@ -3727,7 +3758,15 @@ $('il-select').addEventListener('change', () => {
   const name = state.ilNames?.get(ilCode) || ('İl ' + ilCode);
   const pop = state.ilPops?.get(ilCode) || 0;
   const cnt = state.ilCounts?.get(ilCode) || 0;
-  $('il-info').textContent = `${name}: ${(pop / 1e6).toFixed(2)}M pop, ${cnt} mahalleler.`;
+  // Find max mahalle pop in this il — useful for setting the split threshold.
+  let maxMah = 0;
+  for (const meta of REGIONS) {
+    const r = state.regions[meta.key]; if (!r) continue;
+    for (let i = 0; i < r.N; i++) if (r.il[i] === ilCode && r.pop[i] > maxMah) maxMah = r.pop[i];
+  }
+  const ideal = pop / (+$('il-k').value || 40);
+  const ratio = ideal > 0 ? (maxMah / ideal).toFixed(2) : '—';
+  $('il-info').textContent = `${name}: ${(pop / 1e6).toFixed(2)}M pop, ${cnt} mh. Max mahalle = ${maxMah.toLocaleString('tr-TR')} (${ratio}× ideal at k=${+$('il-k').value || 40}).`;
   // Auto-suggest seat count by Turkish belediye meclisi tiering (rough).
   let k = 25;
   if (pop > 5e6)      k = 200;
@@ -3748,6 +3787,33 @@ document.querySelectorAll('[data-ilsplit]').forEach(b => {
 });
 $('btn-runil').onclick = startRunIl;
 $('btn-exit-il').onclick = exitIlMode;
+$('il-k').addEventListener('change', () => {
+  // Recompute info line when k changes (ideal pop depends on k)
+  const ev = new Event('change'); $('il-select').dispatchEvent(ev);
+});
+
+// Per-district population list, refreshed on tick/done in il mode.
+function renderIlDistList() {
+  const el = $('il-dist-list');
+  if (!el) return;
+  const il = state.regions.il;
+  if (!il || !il.assignment) { el.textContent = '— run an il to see —'; return; }
+  const stats = ensureDistrictStats(il);
+  if (!stats) { el.textContent = '—'; return; }
+  const ideal = il.totalPop / il.k;
+  const rows = stats.map((s, d) => ({ d, ...s })).sort((a, b) => b.pop - a.pop);
+  el.innerHTML = rows.map(s => {
+    const dev = ((s.pop - ideal) / ideal) * 100;
+    const devSign = dev >= 0 ? '+' : '';
+    const devClass = Math.abs(dev) > 10 ? 'color:var(--red-soft)' : '';
+    return `<div style="display:flex;justify-content:space-between;gap:8px;font-variant-numeric:tabular-nums">
+      <span style="color:var(--ink);font-weight:600">#${s.d + 1}</span>
+      <span>${s.pop.toLocaleString('tr-TR')}</span>
+      <span style="${devClass}">${devSign}${dev.toFixed(1)}%</span>
+      <span>${s.n}mh</span>
+    </div>`;
+  }).join('');
+}
 
 // Called once for each 'done' message. Handles multi-restart (loop with
 // new seed, keep best) and auto-polish (chain a polish run after the
@@ -4239,6 +4305,96 @@ function applyBackgroundPaint() {
   }
 }
 
+// İl district borders. Trick: temporarily set each region's r.assignment to
+// a synthetic vector where il mahalleler get the il-majority district id and
+// non-il mahalleler get a sentinel id. Then call the existing per-region
+// border drawer. The il/non-il boundary naturally outlines the il (those
+// non-il paths are display:none but the border lines on top of them still
+// render — gives the il a visible frame).
+function redrawIlDistrictBorders() {
+  const il = state.regions.il;
+  if (!il || !il.assignment) return;
+  const baseDist = computeIlBaseMajority(il);
+  const SENTINEL = il.k;
+  for (const meta of REGIONS) {
+    const r = state.regions[meta.key]; if (!r) continue;
+    // Skip regions with no mahalleler in this il
+    let touches = false;
+    for (let i = 0; i < r.N && !touches; i++) if (r.il[i] === il.ilCode) touches = true;
+    if (!touches) {
+      if (r.borderEl) r.borderEl.setAttribute('d', '');
+      continue;
+    }
+    const synth = new Int32Array(r.N);
+    for (let i = 0; i < r.N; i++) {
+      if (r.il[i] === il.ilCode) {
+        const b = il.baseFromRegional.get(meta.key + ':' + i);
+        synth[i] = (b != null) ? baseDist[b] : SENTINEL;
+      } else synth[i] = SENTINEL;
+    }
+    const saveA = r.assignment, saveK = r.k;
+    r.assignment = synth; r.k = il.k + 1;
+    if (r.borderEl) r.borderEl.style.display = '';
+    try { redrawDistrictBorders(meta.key); }
+    finally { r.assignment = saveA; r.k = saveK; }
+  }
+}
+function computeIlBaseMajority(il) {
+  const baseDist = new Int32Array(il.refs.length);
+  const cnt = new Int32Array(il.k);
+  let cursor = 0;
+  for (let b = 0; b < il.refs.length; b++) {
+    const n = il.nHalves[b];
+    cnt.fill(0);
+    let bestD = il.assignment[cursor], bestC = 0;
+    for (let h = 0; h < n; h++) {
+      const d = il.assignment[cursor + h];
+      cnt[d]++;
+      if (cnt[d] > bestC) { bestC = cnt[d]; bestD = d; }
+    }
+    baseDist[b] = bestD;
+    cursor += n;
+  }
+  return baseDist;
+}
+
+// SVG patterns for split mahalleler — diagonal-stripe of two district colors.
+// Patterns live in a single <defs> child of the zoom group, keyed by the
+// hash of the colors (so repeated splits with the same color-pair share a
+// pattern).
+function ensureSplitPattern(colorA, colorB) {
+  if (!state._splitDefs) {
+    const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+    defs.id = 'split-defs';
+    state.zoomG.appendChild(defs);
+    state._splitDefs = defs;
+    state._splitCache = new Map();
+  }
+  const key = colorA + '|' + colorB;
+  if (state._splitCache.has(key)) return state._splitCache.get(key);
+  const id = 'split-' + state._splitCache.size;
+  const pat = document.createElementNS('http://www.w3.org/2000/svg', 'pattern');
+  pat.id = id;
+  pat.setAttribute('patternUnits', 'userSpaceOnUse');
+  pat.setAttribute('width', '6');
+  pat.setAttribute('height', '6');
+  pat.setAttribute('patternTransform', 'rotate(45)');
+  const r1 = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+  r1.setAttribute('x', '0'); r1.setAttribute('y', '0');
+  r1.setAttribute('width', '3'); r1.setAttribute('height', '6');
+  r1.setAttribute('fill', colorA);
+  pat.appendChild(r1);
+  const r2 = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+  r2.setAttribute('x', '3'); r2.setAttribute('y', '0');
+  r2.setAttribute('width', '3'); r2.setAttribute('height', '6');
+  r2.setAttribute('fill', colorB);
+  pat.appendChild(r2);
+  state._splitDefs.appendChild(pat);
+  const url = 'url(#' + id + ')';
+  state._splitCache.set(key, url);
+  return url;
+}
+
 // Paint the active il sub-graph onto its underlying regional path elements.
 // Each base mahalle has 1..n virtual halves (different local ids); we color
 // the polygon by the majority district across its halves.
@@ -4254,41 +4410,34 @@ function recolorIl() {
     return;
   }
   const k = il.k || (Math.max(...il.assignment) + 1);
-  // For each base, find majority district across its halves.
-  const baseDist = new Int32Array(il.refs.length);
-  const cnt = new Int32Array(k);
-  let cursor = 0;
-  for (let b = 0; b < il.refs.length; b++) {
-    const n = il.nHalves[b];
-    cnt.fill(0);
-    let bestD = il.assignment[cursor], bestC = 0;
-    for (let h = 0; h < n; h++) {
-      const d = il.assignment[cursor + h];
-      cnt[d]++;
-      if (cnt[d] > bestC) { bestC = cnt[d]; bestD = d; }
-    }
-    baseDist[b] = bestD;
-    cursor += n;
-  }
   if (state.colorMode === 'districts') {
     if (!il._palette || il._palette.length !== k) il._palette = buildPalette(k);
-    const pal = il._palette;
-    for (let b = 0; b < il.refs.length; b++) {
-      const s = il.refs[b];
-      const el = state.pathEls[s.rk]?.[s.idx];
-      if (el) el.setAttribute('fill', pal[baseDist[b]]);
-    }
   } else {
-    // Partisan: aggregate per-district share across ALL halves (= base mahalle votes anyway)
     const m = new Float64Array(k), kk = new Float64Array(k);
     for (let g = 0; g < il.N; g++) { m[il.assignment[g]] += il.muh[g]; kk[il.assignment[g]] += il.ikt[g]; }
     const partisan = new Array(k);
     for (let d = 0; d < k; d++) { const t = m[d] + kk[d]; partisan[d] = t > 0 ? m[d] / t : 0.5; }
     il._partisan = partisan;
-    for (let b = 0; b < il.refs.length; b++) {
-      const s = il.refs[b];
-      const el = state.pathEls[s.rk]?.[s.idx];
-      if (el) el.setAttribute('fill', partisanColor(partisan[baseDist[b]]));
+  }
+  const districtColor = (d) =>
+    state.colorMode === 'districts' ? il._palette[d] : partisanColor(il._partisan[d]);
+  // For each base mahalle: collect the set of distinct districts among its
+  // halves. Single district → solid fill. Multiple → diagonal-stripe pattern
+  // (first two distinct districts; if 3+ those are dropped — rare).
+  let cursor = 0;
+  for (let b = 0; b < il.refs.length; b++) {
+    const nH = il.nHalves[b];
+    const ds = new Set();
+    for (let h = 0; h < nH; h++) ds.add(il.assignment[cursor + h]);
+    cursor += nH;
+    const s = il.refs[b];
+    const el = state.pathEls[s.rk]?.[s.idx];
+    if (!el) continue;
+    if (ds.size === 1) {
+      el.setAttribute('fill', districtColor(ds.values().next().value));
+    } else {
+      const [a, c] = [...ds].slice(0, 2);
+      el.setAttribute('fill', ensureSplitPattern(districtColor(a), districtColor(c)));
     }
   }
 }
@@ -4355,6 +4504,43 @@ function ensureDistrictStats(r) {
   if (r._statsValid) return r._stats;
   const k = r.k;
   if (!k || !r.assignment) { r._stats = null; return null; }
+  // İl mode: walk BASE mahalleler (not virtual halves) and count each base
+  // once for "Mahalleler" via its majority district. Pop/votes come from
+  // the original (= sum across halves = base totals).
+  if (r.isIl && r.refs) {
+    const stats = new Array(k);
+    for (let d = 0; d < k; d++) stats[d] = { pop: 0, muh: 0, ikt: 0, n: 0 };
+    const ideal = r.totalPop / k;
+    let cursor = 0;
+    for (let b = 0; b < r.refs.length; b++) {
+      const s = r.refs[b];
+      const reg = state.regions[s.rk];
+      const nH = r.nHalves[b];
+      const cnt = new Int32Array(k);
+      let bestD = r.assignment[cursor], bestC = 0;
+      for (let h = 0; h < nH; h++) {
+        const d = r.assignment[cursor + h];
+        cnt[d]++;
+        if (cnt[d] > bestC) { bestC = cnt[d]; bestD = d; }
+      }
+      cursor += nH;
+      const st = stats[bestD];
+      st.pop += reg.pop[s.idx];
+      st.muh += reg.muh[s.idx];
+      st.ikt += reg.ikt[s.idx];
+      st.n  += 1;  // one base mahalle (not half)
+    }
+    for (let d = 0; d < k; d++) {
+      const st = stats[d];
+      const tt = st.muh + st.ikt;
+      st.share = tt > 0 ? st.muh / tt : 0.5;
+      st.popDev = (st.pop - ideal) / ideal;
+      st.margin = Math.abs(st.muh - st.ikt) / Math.max(1, tt);
+      st.winner = st.muh > st.ikt ? 'Muhalefet' : (st.ikt > st.muh ? 'Iktidar' : 'Tie');
+    }
+    r._stats = stats; r._statsValid = true;
+    return stats;
+  }
   // National-slice mode: r.assignment is a per-region view of a global
   // assignment whose districts span multiple regions. Aggregating only
   // the local slice would compare a fragment to the national ideal —
