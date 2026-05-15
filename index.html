@@ -513,7 +513,7 @@
         <h3>Run parameters</h3>
         <div>
           <div class="label">Iterations</div>
-          <input class="nin" type="number" id="in-iters" value="2000" min="100" max="100000" step="100">
+          <input class="nin" type="number" id="in-iters" value="10000" min="100" max="500000" step="500" title="ReCom moves to attempt. For aggressive gerrymandering or large k (national k≈600) you want 20K-100K — each move only shifts a few districts.">
         </div>
         <div style="margin-top:12px">
           <div class="label">Population tolerance</div>
@@ -592,7 +592,7 @@
         <div class="weight-row zero" data-key="partisanAdv">
           <span class="weight-name">Partisan tilt (− Muh ← 0 → + İkt)</span>
           <span class="weight-val">0</span>
-          <input type="range" data-weight="partisanAdv" min="-30" max="30" step="1" value="0" title="Signed weight. Positive = gerrymander toward İktidar (minimize Muhalefet seat count). Negative = gerrymander toward Muhalefet. Zero = no partisan tilt.">
+          <input type="range" data-weight="partisanAdv" min="-100" max="100" step="1" value="0" title="Signed weight, internally ×10 in the score. Positive = gerrymander toward İktidar. Negative = toward Muhalefet. To actually flip seats: pair with low Compactness weight + more iterations.">
         </div>
       </div>
 
@@ -1121,9 +1121,11 @@ function scoreFromState(S, weights) {
       s += weights.competitiveness * mm * mm;
     }
     if (weights.partisanAdv) {
-      // Signed: positive weight gerrymanders toward İktidar (minimize muh wins);
-      // negative weight gerrymanders toward Muhalefet (maximize muh wins).
-      s += weights.partisanAdv * muhWins;
+      // Signed term. Internal ×10 so the slider value is comparable in
+      // magnitude to cutEdges*1 (which dominates the score on a 51K-node
+      // national graph). Positive = gerrymander toward İktidar (minimize
+      // muh wins); negative = toward Muhalefet.
+      s += weights.partisanAdv * 10 * muhWins;
     }
   }
   if (weights.ilSplits) s += weights.ilSplits * S.ilSplits;
@@ -1344,7 +1346,7 @@ function recomStepInc(S, tol, weights, T, rng) {
       const mm = (marginSum / k) * 100;
       proposed += weights.competitiveness * mm * mm;
     }
-    if (weights.partisanAdv) proposed += weights.partisanAdv * muhWins;
+    if (weights.partisanAdv) proposed += weights.partisanAdv * 10 * muhWins;
   }
   if (weights.ilSplits) proposed += weights.ilSplits * newIlSplits;
 
@@ -1581,7 +1583,7 @@ function flipStep(S, weights, rng) {
         const mm = (marginSum / kk) * 100;
         newScore += weights.competitiveness * mm * mm;
       }
-      if (weights.partisanAdv) newScore += weights.partisanAdv * muhWins;
+      if (weights.partisanAdv) newScore += weights.partisanAdv * 10 * muhWins;
     }
     if (weights.ilSplits) newScore += weights.ilSplits * newIlSplits;
 
@@ -1982,12 +1984,15 @@ const PRESETS = {
   competitive:  { cutEdges: 1,  popDev: 50, effGap: 0,   competitiveness: 20, meanMedian: 0, partisanAdv: 0,   ilSplits: 0 },
   provinces:    { cutEdges: 1,  popDev: 50, effGap: 0,   competitiveness: 0,  meanMedian: 0, partisanAdv: 0,   ilSplits: 10 },
   poponly:      { cutEdges: 0,  popDev: 50, effGap: 0,   competitiveness: 0,  meanMedian: 0, partisanAdv: 0,   ilSplits: 0 },
-  // UNFAIR: maximize one party's seat count.
-  proiktidar:   { cutEdges: 1,  popDev: 50, effGap: 0,   competitiveness: 0,  meanMedian: 0, partisanAdv:  25, ilSplits: 0 },
-  promuh:       { cutEdges: 1,  popDev: 50, effGap: 0,   competitiveness: 0,  meanMedian: 0, partisanAdv: -25, ilSplits: 0 },
+  // UNFAIR: maximize one party's seat count. Compactness gets dropped to
+  // 0.2 so the partisan force (slider × 10 internally) can actually
+  // override the cut-edge preference. Population balance stays at 50
+  // (the hard popTol still gates rejection).
+  proiktidar:   { cutEdges: 0.2, popDev: 50, effGap: 0,   competitiveness: 0,  meanMedian: 0, partisanAdv:  80, ilSplits: 0 },
+  promuh:       { cutEdges: 0.2, popDev: 50, effGap: 0,   competitiveness: 0,  meanMedian: 0, partisanAdv: -80, ilSplits: 0 },
   // Inverted effGap weight (negative) pushes the search AWAY from
   // proportional outcomes — the worst-case partisan bias.
-  maxasym:      { cutEdges: 1,  popDev: 50, effGap: -20, competitiveness: 0,  meanMedian: 0, partisanAdv: 0,   ilSplits: 0 },
+  maxasym:      { cutEdges: 0.5, popDev: 50, effGap: -50, competitiveness: 0,  meanMedian: 0, partisanAdv: 0,   ilSplits: 0 },
   proportional: { cutEdges: 1,  popDev: 50, effGap: 10,  competitiveness: 5,  meanMedian: 15, partisanAdv: 0,  ilSplits: 0 },
   random:       { cutEdges: 0,  popDev: 50, effGap: 0,   competitiveness: 0,  meanMedian: 0, partisanAdv: 0,   ilSplits: 0 },
   balanced:     { cutEdges: 3,  popDev: 50, effGap: 3,   competitiveness: 3,  meanMedian: 3, partisanAdv: 0,   ilSplits: 3 },
@@ -2006,6 +2011,14 @@ function applyPreset(name) {
   for (const [k, w] of Object.entries(p)) setWeight(k, w);
   document.querySelectorAll('[data-preset]').forEach(b =>
     b.classList.toggle('active', b.dataset.preset === name));
+  // Aggressive optimization targets need many more moves to converge AND
+  // simulated annealing to escape the proportional/compact local minimum.
+  // Bump iters + T only if the user hasn't already set higher values.
+  const heavyPresets = ['proiktidar', 'promuh', 'maxasym', 'compactness'];
+  if (heavyPresets.includes(name)) {
+    if ((+$('in-iters').value || 0) < 30000) $('in-iters').value = 30000;
+    if ((+$('in-temp').value  || 0) < 100)   $('in-temp').value  = 100;
+  }
 }
 document.querySelectorAll('[data-preset]').forEach(btn => {
   btn.onclick = () => applyPreset(btn.dataset.preset);
@@ -2889,6 +2902,7 @@ function buildPalette(n) {
 }
 
 function recolorRegion(key) {
+  if (key === 'national') { recolorNational(); return; }
   const r = state.regions[key];
   const els = state.pathEls[key];
   if (!r || !els) return;
@@ -3132,9 +3146,21 @@ function recolorNational() {
       for (let i = 0; i < r.N; i++) els[i].setAttribute('fill', partisanColor(partisan[nat.assignment[o + i]]));
     }
   }
+  // Per-region district borders: project the global assignment slice into
+  // each region's r.assignment and run the existing per-region border
+  // drawer. Cross-region same-district pairs are naturally borderless
+  // (each region only draws its own boundaries), which is what we want.
   for (const meta of REGIONS) {
     const r = state.regions[meta.key];
-    if (r?.borderEl) r.borderEl.setAttribute('d', '');
+    if (!r) continue;
+    const o = nat.offsets[meta.key];
+    let slice = r._natSlice;
+    if (!slice || slice.length !== r.N) slice = r._natSlice = new Int32Array(r.N);
+    for (let i = 0; i < r.N; i++) slice[i] = nat.assignment[o + i];
+    r.assignment = slice;
+    r.k = k;
+    invalidateDistrictStats(r);
+    redrawDistrictBorders(meta.key);
   }
 }
 
