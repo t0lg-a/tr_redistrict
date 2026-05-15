@@ -259,6 +259,16 @@
   }
   .weight-name .info-tip,
   .label .info-tip { vertical-align: 0; }
+  .info-tooltip {
+    position: fixed; z-index: 1000;
+    background: var(--ink); color: var(--paper);
+    padding: 9px 12px; max-width: 280px;
+    font-family: var(--body); font-size: 12.5px; font-style: normal;
+    font-weight: 400; line-height: 1.5; letter-spacing: 0;
+    border: 1px solid var(--ink);
+    pointer-events: none;
+    box-shadow: 0 4px 14px rgba(20,15,8,0.18);
+  }
 
   /* Scenario list */
   .scn-item {
@@ -2588,12 +2598,40 @@ const WEIGHT_TIPS = {
   lopsidedWins:    'Lopsided-wins penalty: Σ_d (share_d − 0.5)². Penalizes wasted votes / landslide wins; rewards thin winning margins.',
   packCrack:       'Pack/crack variance: variance of share around the regional mean. Penalizing this pushes toward uniform districts.',
 };
+// Shared tooltip element + attach behavior — real popup, not native title
+// (native title has a long delay and won't word-wrap nicely).
+const _infoTipEl = document.createElement('div');
+_infoTipEl.className = 'info-tooltip';
+_infoTipEl.style.display = 'none';
+document.body.appendChild(_infoTipEl);
+function positionInfoTip(anchor) {
+  const r = anchor.getBoundingClientRect();
+  const tw = _infoTipEl.offsetWidth, th = _infoTipEl.offsetHeight;
+  const vw = window.innerWidth, vh = window.innerHeight;
+  // Default: below the icon, left-anchored. Flip if overflowing.
+  let top = r.bottom + 6;
+  let left = r.left - 4;
+  if (top + th > vh - 8) top = r.top - th - 6;
+  if (left + tw > vw - 8) left = vw - tw - 8;
+  if (left < 8) left = 8;
+  _infoTipEl.style.top = top + 'px';
+  _infoTipEl.style.left = left + 'px';
+}
+function attachInfoTip(icon, tip) {
+  icon.addEventListener('mouseenter', () => {
+    _infoTipEl.textContent = tip;
+    _infoTipEl.style.display = '';
+    positionInfoTip(icon);
+  });
+  icon.addEventListener('mouseleave', () => { _infoTipEl.style.display = 'none'; });
+  icon.addEventListener('mousedown',  () => { _infoTipEl.style.display = 'none'; });
+}
 function decorateInfoTips() {
   const mkIcon = (tip) => {
     const s = document.createElement('span');
     s.className = 'info-tip';
-    s.title = tip;
     s.textContent = 'i';
+    attachInfoTip(s, tip);
     return s;
   };
   for (const [id, tip] of Object.entries(HELP_TIPS)) {
