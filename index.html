@@ -198,20 +198,45 @@
     transform: translate(-50%, -50%); pointer-events: none;
   }
 
-  /* Checkboxes */
-  .check-row {
-    display: flex; align-items: center; gap: 8px; margin-bottom: 6px;
-    cursor: pointer; user-select: none;
+  /* Optimization presets + per-objective weight sliders */
+  .presets { display: flex; flex-wrap: wrap; gap: 6px; }
+  .weight-row {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    grid-template-rows: auto auto;
+    gap: 4px 8px;
+    margin-bottom: 12px;
   }
-  .check-row .box {
-    width: 12px; height: 12px;
-    border: 1px solid var(--rule-soft); background: transparent; flex-shrink: 0;
-    transition: background 0.2s ease, border-color 0.2s ease;
+  .weight-row .weight-name {
+    grid-column: 1; grid-row: 1;
+    font-family: var(--body); font-size: 13px; color: var(--ink);
   }
-  .check-row.on .box { background: var(--ink); border-color: var(--ink); }
-  .check-row .lbl {
-    font-family: var(--body); font-weight: 500; font-size: 13.5px; color: var(--ink);
+  .weight-row .weight-val {
+    grid-column: 2; grid-row: 1;
+    font-family: var(--mono); font-size: 11px; color: var(--muted);
+    font-variant-numeric: tabular-nums; text-align: right;
   }
+  .weight-row input[type="range"] {
+    grid-column: 1 / -1; grid-row: 2;
+    appearance: none; -webkit-appearance: none;
+    width: 100%; height: 4px;
+    background: var(--rule-soft);
+    outline: none; cursor: pointer; border-radius: 0;
+    margin: 2px 0 0;
+  }
+  .weight-row input[type="range"]::-webkit-slider-thumb {
+    appearance: none; -webkit-appearance: none;
+    width: 14px; height: 14px;
+    background: var(--ink); border: 1px solid var(--ink);
+    cursor: pointer; border-radius: 0; margin-top: -5px;
+  }
+  .weight-row input[type="range"]::-moz-range-thumb {
+    width: 14px; height: 14px;
+    background: var(--ink); border: 1px solid var(--ink);
+    border-radius: 0; cursor: pointer;
+  }
+  .weight-row.zero .weight-name,
+  .weight-row.zero .weight-val { color: var(--muted-2); }
 
   /* Buttons — flat, hairline, ink-fill for primary */
   button.cmd {
@@ -420,14 +445,47 @@
       </div>
 
       <div class="panel">
-        <h3>Score</h3>
-        <button class="cmd" id="btn-antimander-preset" style="width:100%;margin-bottom:8px" title="Antimander's fair-redistricting bundle: minimize efficiency gap, maximize competitiveness, keep districts compact (cut-edge proxy), with population balance as hard constraint.">Antimander fair preset</button>
-        <div class="check-row on" data-key="cutEdges"><div class="box"></div><div class="lbl">Cut edges (compactness)</div></div>
-        <div class="check-row on" data-key="popDev"><div class="box"></div><div class="lbl">Population balance</div></div>
-        <div class="check-row" data-key="effGap"><div class="box"></div><div class="lbl">Efficiency gap</div></div>
-        <div class="check-row" data-key="competitiveness"><div class="box"></div><div class="lbl">Competitiveness</div></div>
-        <div class="check-row" data-key="meanMedian"><div class="box"></div><div class="lbl">Mean–median</div></div>
-        <div class="check-row" data-key="ilSplits"><div class="box"></div><div class="lbl">İl splits penalty</div></div>
+        <h3>Optimization</h3>
+        <div class="label">Presets</div>
+        <div class="presets">
+          <button class="toggle-btn" data-preset="antimander" title="Antimander balanced: efficiency gap + competitiveness + compactness.">Antimander</button>
+          <button class="toggle-btn" data-preset="compactness" title="Tight, compact districts. High cut-edge penalty, partisan blind.">Compactness</button>
+          <button class="toggle-btn" data-preset="partisan" title="Partisan fairness: minimize efficiency gap and mean–median.">Partisan fair</button>
+          <button class="toggle-btn" data-preset="competitive" title="Competitive races: minimize landslide margins.">Competitive</button>
+          <button class="toggle-btn" data-preset="provinces" title="Keep districts inside il (province) boundaries where possible.">İl-preserving</button>
+          <button class="toggle-btn" data-preset="poponly" title="Population balance only. No compactness or fairness pressure.">Pop only</button>
+        </div>
+        <div class="label" style="margin-top:14px">Weights</div>
+        <div class="weight-row" data-key="cutEdges">
+          <span class="weight-name">Compactness (cut edges)</span>
+          <span class="weight-val">1</span>
+          <input type="range" data-weight="cutEdges" min="0" max="10" step="0.5" value="1">
+        </div>
+        <div class="weight-row" data-key="popDev">
+          <span class="weight-name">Population balance</span>
+          <span class="weight-val">50</span>
+          <input type="range" data-weight="popDev" min="0" max="100" step="5" value="50">
+        </div>
+        <div class="weight-row zero" data-key="effGap">
+          <span class="weight-name">Efficiency gap</span>
+          <span class="weight-val">0</span>
+          <input type="range" data-weight="effGap" min="0" max="20" step="1" value="0">
+        </div>
+        <div class="weight-row zero" data-key="competitiveness">
+          <span class="weight-name">Competitiveness</span>
+          <span class="weight-val">0</span>
+          <input type="range" data-weight="competitiveness" min="0" max="20" step="1" value="0">
+        </div>
+        <div class="weight-row zero" data-key="meanMedian">
+          <span class="weight-name">Mean–median</span>
+          <span class="weight-val">0</span>
+          <input type="range" data-weight="meanMedian" min="0" max="20" step="1" value="0">
+        </div>
+        <div class="weight-row zero" data-key="ilSplits">
+          <span class="weight-name">İl-split penalty</span>
+          <span class="weight-val">0</span>
+          <input type="range" data-weight="ilSplits" min="0" max="10" step="0.5" value="0">
+        </div>
       </div>
 
       <div class="panel">
@@ -1751,34 +1809,47 @@ tolTrack.addEventListener('mousedown', (e) => { tolDrag = true; handleTol(e); })
 window.addEventListener('mousemove', (e) => { if (tolDrag) handleTol(e); });
 window.addEventListener('mouseup',   () => tolDrag = false);
 
-document.querySelectorAll('.check-row').forEach(el => {
-  el.onclick = () => {
-    el.classList.toggle('on');
-    const k = el.dataset.key;
-    state.weights[k] = el.classList.contains('on') ? defaultWeight(k) : 0;
-  };
-});
-function defaultWeight(k) {
-  if (k === 'cutEdges')        return 1;
-  if (k === 'popDev')          return 50;
-  if (k === 'meanMedian')      return 5;
-  if (k === 'effGap')          return 5;
-  if (k === 'competitiveness') return 5;
-  if (k === 'ilSplits')        return 2;
-  return 1;
-}
-
-// Antimander's fair-redistricting bundle: minimize efficiency gap +
-// maximize competitiveness + keep cut-edge compactness, with population
-// balance as a hard constraint (the existing tolerance slider).
-$('btn-antimander-preset').onclick = () => {
-  const preset = { cutEdges: 1, popDev: 50, effGap: 5, competitiveness: 5, meanMedian: 0, ilSplits: 0 };
-  for (const [k, w] of Object.entries(preset)) {
-    state.weights[k] = w;
-    const row = document.querySelector(`.check-row[data-key="${k}"]`);
-    if (row) row.classList.toggle('on', w > 0);
-  }
+// Optimization presets — each emphasizes a different Antimander-style
+// objective. Sliders below give continuous per-objective control; clicking
+// a preset just snaps all six sliders to a named configuration.
+const PRESETS = {
+  antimander:  { cutEdges: 5,  popDev: 50, effGap: 5,  competitiveness: 5,  meanMedian: 0, ilSplits: 0 },
+  compactness: { cutEdges: 10, popDev: 50, effGap: 0,  competitiveness: 0,  meanMedian: 0, ilSplits: 0 },
+  partisan:    { cutEdges: 1,  popDev: 50, effGap: 20, competitiveness: 0,  meanMedian: 5, ilSplits: 0 },
+  competitive: { cutEdges: 1,  popDev: 50, effGap: 0,  competitiveness: 20, meanMedian: 0, ilSplits: 0 },
+  provinces:   { cutEdges: 1,  popDev: 50, effGap: 0,  competitiveness: 0,  meanMedian: 0, ilSplits: 10 },
+  poponly:     { cutEdges: 0,  popDev: 50, effGap: 0,  competitiveness: 0,  meanMedian: 0, ilSplits: 0 },
 };
+function setWeight(k, w) {
+  state.weights[k] = w;
+  const slider = document.querySelector(`input[type="range"][data-weight="${k}"]`);
+  if (!slider) return;
+  slider.value = String(w);
+  const row = slider.closest('.weight-row');
+  row.querySelector('.weight-val').textContent = w;
+  row.classList.toggle('zero', w === 0);
+}
+function applyPreset(name) {
+  const p = PRESETS[name]; if (!p) return;
+  for (const [k, w] of Object.entries(p)) setWeight(k, w);
+  document.querySelectorAll('[data-preset]').forEach(b =>
+    b.classList.toggle('active', b.dataset.preset === name));
+}
+document.querySelectorAll('[data-preset]').forEach(btn => {
+  btn.onclick = () => applyPreset(btn.dataset.preset);
+});
+document.querySelectorAll('input[type="range"][data-weight]').forEach(slider => {
+  slider.addEventListener('input', () => {
+    const k = slider.dataset.weight;
+    const w = Number(slider.value);
+    state.weights[k] = w;
+    const row = slider.closest('.weight-row');
+    row.querySelector('.weight-val').textContent = w;
+    row.classList.toggle('zero', w === 0);
+    // Manual change clears preset highlight
+    document.querySelectorAll('[data-preset]').forEach(b => b.classList.remove('active'));
+  });
+});
 
 $('color-districts').onclick = () => { state.colorMode = 'districts'; setColorMode(); };
 $('color-partisan').onclick  = () => { state.colorMode = 'partisan';  setColorMode(); };
