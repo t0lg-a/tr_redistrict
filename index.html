@@ -631,7 +631,8 @@
           <div class="label">Split threshold (× ideal pop)</div>
           <input class="nin" type="number" id="il-split-thresh" value="1.5" min="1.1" max="10" step="0.1">
         </div>
-        <button class="cmd go" id="btn-runil" disabled style="margin-top:10px;width:100%">Run İl</button>
+        <button class="cmd go" id="btn-runil" disabled style="margin-top:10px;width:100%">Run İl (current weights)</button>
+        <button class="cmd go" id="btn-runil-pr" disabled style="margin-top:6px;width:100%" title="Council elections are PR in real life. This run applies heavy fairness weights (target seat-share = vote share + mean-median + competitiveness) so the council mirrors the actual vote split.">Run İl proportional (PR)</button>
         <button class="cmd" id="btn-exit-il" disabled style="margin-top:6px;width:100%">Exit İl mode</button>
         <div class="label" style="margin-top:14px">District populations</div>
         <div id="il-dist-list" style="font-family:var(--mono);font-size:11px;color:var(--muted);line-height:1.5;max-height:240px;overflow-y:auto">— run an il to see —</div>
@@ -1413,7 +1414,6 @@ function scoreFromState(S, weights) {
     }
   }
   if (weights.popVar) {
-    // Average squared dev across all districts (vs popDev which uses max).
     const k = S.k;
     const ideal = S.R.totalPop / k;
     let sv = 0;
@@ -1422,6 +1422,21 @@ function scoreFromState(S, weights) {
       sv += o * o;
     }
     s += weights.popVar * (sv / k) * 100 * 100;
+  }
+  if (weights.targetSeats && weights.targetMuhFrac != null) {
+    // Penalize deviation of muh-seat-share from target. muhWins is the soft-
+    // count we already use in partisanAdv; here we hit a TARGET rather than
+    // minimize/maximize.
+    const k = S.k;
+    let muhWins = 0;
+    for (let d = 0; d < k; d++) {
+      const t = S.muhs[d] + S.ikts[d];
+      const sh = t > 0 ? S.muhs[d] / t : 0.5;
+      muhWins += 1 / (1 + Math.exp(-20 * (sh - 0.5)));
+    }
+    const actual = muhWins / k, target = weights.targetMuhFrac;
+    const diff = (actual - target) * 100;
+    s += weights.targetSeats * diff * diff;
   }
   if (weights.ilSplits) s += weights.ilSplits * S.ilSplits;
   return s;
@@ -1659,6 +1674,19 @@ function recomStepInc(S, tol, weights, T, rng) {
       sv += o * o;
     }
     proposed += weights.popVar * (sv / k) * 100 * 100;
+  }
+  if (weights.targetSeats && weights.targetMuhFrac != null) {
+    const k = S.k;
+    let muhWins = 0;
+    for (let d = 0; d < k; d++) {
+      const m = (d === d1) ? newMuh_d1 : (d === d2) ? newMuh_d2 : S.muhs[d];
+      const i_ = (d === d1) ? newIkt_d1 : (d === d2) ? newIkt_d2 : S.ikts[d];
+      const t = m + i_;
+      const sh = t > 0 ? m / t : 0.5;
+      muhWins += 1 / (1 + Math.exp(-20 * (sh - 0.5)));
+    }
+    const diff = (muhWins / k - weights.targetMuhFrac) * 100;
+    proposed += weights.targetSeats * diff * diff;
   }
   if (weights.ilSplits) proposed += weights.ilSplits * newIlSplits;
 
@@ -1918,6 +1946,18 @@ function flipStep(S, weights, rng) {
         sv += o * o;
       }
       newScore += weights.popVar * (sv / kk) * 100 * 100;
+    }
+    if (weights.targetSeats && weights.targetMuhFrac != null) {
+      let muhWins = 0;
+      for (let d = 0; d < kk; d++) {
+        const m = (d === dFrom) ? newMuhFrom : (d === dTo) ? newMuhTo : S.muhs[d];
+        const i_ = (d === dFrom) ? newIktFrom : (d === dTo) ? newIktTo : S.ikts[d];
+        const t = m + i_;
+        const sh = t > 0 ? m / t : 0.5;
+        muhWins += 1 / (1 + Math.exp(-20 * (sh - 0.5)));
+      }
+      const diff = (muhWins / kk - weights.targetMuhFrac) * 100;
+      newScore += weights.targetSeats * diff * diff;
     }
     if (weights.ilSplits) newScore += weights.ilSplits * newIlSplits;
 
@@ -2342,7 +2382,7 @@ window.addEventListener('mouseup',   () => tolDrag = false);
 // objective. Sliders below give continuous per-objective control; clicking
 // a preset just snaps all six sliders to a named configuration.
 function _wp(o) {
-  return Object.assign({ cutEdges: 0, popDev: 50, effGap: 0, competitiveness: 0, meanMedian: 0, partisanAdv: 0, lopsidedWins: 0, packCrack: 0, ilSplits: 0 }, o);
+  return Object.assign({ cutEdges: 0, popDev: 50, effGap: 0, competitiveness: 0, meanMedian: 0, partisanAdv: 0, lopsidedWins: 0, packCrack: 0, ilSplits: 0, popVar: 0, targetSeats: 0 }, o);
 }
 const PRESETS = {
   antimander:   _wp({ cutEdges: 5,  effGap: 5,   competitiveness: 5 }),
@@ -3758,26 +3798,42 @@ $('il-select').addEventListener('change', () => {
   const name = state.ilNames?.get(ilCode) || ('İl ' + ilCode);
   const pop = state.ilPops?.get(ilCode) || 0;
   const cnt = state.ilCounts?.get(ilCode) || 0;
-  // Find max mahalle pop in this il — useful for setting the split threshold.
-  let maxMah = 0;
+  // Find max mahalle pop + vote totals in this il.
+  let maxMah = 0, ikt = 0, muh = 0;
   for (const meta of REGIONS) {
     const r = state.regions[meta.key]; if (!r) continue;
-    for (let i = 0; i < r.N; i++) if (r.il[i] === ilCode && r.pop[i] > maxMah) maxMah = r.pop[i];
+    for (let i = 0; i < r.N; i++) {
+      if (r.il[i] !== ilCode) continue;
+      if (r.pop[i] > maxMah) maxMah = r.pop[i];
+      ikt += r.ikt[i]; muh += r.muh[i];
+    }
   }
-  const ideal = pop / (+$('il-k').value || 40);
-  const ratio = ideal > 0 ? (maxMah / ideal).toFixed(2) : '—';
-  $('il-info').textContent = `${name}: ${(pop / 1e6).toFixed(2)}M pop, ${cnt} mh. Max mahalle = ${maxMah.toLocaleString('tr-TR')} (${ratio}× ideal at k=${+$('il-k').value || 40}).`;
   // Auto-suggest seat count by Turkish belediye meclisi tiering (rough).
-  let k = 25;
-  if (pop > 5e6)      k = 200;
-  else if (pop > 1e6) k = 75;
-  else if (pop > 5e5) k = 55;
-  else if (pop > 2e5) k = 37;
-  else if (pop > 1e5) k = 31;
-  else if (pop > 5e4) k = 25;
-  else                k = 15;
-  $('il-k').value = k;
+  let suggestK = 25;
+  if (pop > 5e6)      suggestK = 200;
+  else if (pop > 1e6) suggestK = 75;
+  else if (pop > 5e5) suggestK = 55;
+  else if (pop > 2e5) suggestK = 37;
+  else if (pop > 1e5) suggestK = 31;
+  else if (pop > 5e4) suggestK = 25;
+  else                suggestK = 15;
+  $('il-k').value = suggestK;
+  const k = suggestK;
+  const ideal = pop / k;
+  const ratio = ideal > 0 ? (maxMah / ideal).toFixed(2) : '—';
+  const tot = ikt + muh;
+  const iktPct = tot > 0 ? (ikt / tot * 100) : 0;
+  const muhPct = 100 - iktPct;
+  const fairIkt = Math.round(iktPct / 100 * k);
+  const fairMuh = k - fairIkt;
+  state._ilSelected = { ilCode, pop, maxMah, ikt, muh, iktPct, muhPct, fairIkt, fairMuh };
+  $('il-info').innerHTML = `
+    <div><b>${name}</b> · ${(pop / 1e6).toFixed(2)}M pop · ${cnt} mh</div>
+    <div>Max mahalle = ${maxMah.toLocaleString('tr-TR')} (${ratio}× ideal at k=${k})</div>
+    <div>Vote split: İkt <b>${iktPct.toFixed(1)}%</b> / Muh <b>${muhPct.toFixed(1)}%</b></div>
+    <div>Proportional target at k=${k}: İkt <b>${fairIkt}</b> / Muh <b>${fairMuh}</b></div>`;
   $('btn-runil').disabled = false;
+  $('btn-runil-pr').disabled = false;
 });
 document.querySelectorAll('[data-ilsplit]').forEach(b => {
   b.onclick = () => {
@@ -3787,6 +3843,28 @@ document.querySelectorAll('[data-ilsplit]').forEach(b => {
 });
 $('btn-runil').onclick = startRunIl;
 $('btn-exit-il').onclick = exitIlMode;
+$('btn-runil-pr').onclick = () => {
+  const info = state._ilSelected;
+  if (!info) return;
+  // Apply fairness weights: aim for the proportional target.
+  setWeight('cutEdges', 0.5);
+  setWeight('popDev', 50);
+  setWeight('effGap', 20);
+  setWeight('competitiveness', 8);
+  setWeight('meanMedian', 15);
+  setWeight('partisanAdv', 0);
+  setWeight('lopsidedWins', 0);
+  setWeight('packCrack', 0);
+  setWeight('ilSplits', 0);
+  setWeight('popVar', 0);
+  state.weights.targetSeats = 30;             // weight
+  state.weights.targetMuhFrac = info.muh / Math.max(1, info.ikt + info.muh);  // muh seat-share target
+  document.querySelectorAll('[data-preset]').forEach(b => b.classList.remove('active'));
+  // Better-quality search for fairness — bump iters + annealing if user hasn't.
+  if ((+$('in-iters').value || 0) < 30000) $('in-iters').value = 30000;
+  if ((+$('in-temp').value  || 0) < 100)   $('in-temp').value  = 100;
+  startRunIl();
+};
 $('il-k').addEventListener('change', () => {
   // Recompute info line when k changes (ideal pop depends on k)
   const ev = new Event('change'); $('il-select').dispatchEvent(ev);
