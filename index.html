@@ -198,19 +198,125 @@
     transform: translate(-50%, -50%); pointer-events: none;
   }
 
-  /* Checkboxes */
-  .check-row {
-    display: flex; align-items: center; gap: 8px; margin-bottom: 6px;
-    cursor: pointer; user-select: none;
+  /* Optimization presets + per-objective weight sliders */
+  .presets { display: flex; flex-wrap: wrap; gap: 6px; }
+  .weight-row {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    grid-template-rows: auto auto;
+    gap: 4px 8px;
+    margin-bottom: 12px;
   }
-  .check-row .box {
-    width: 12px; height: 12px;
-    border: 1px solid var(--rule-soft); background: transparent; flex-shrink: 0;
-    transition: background 0.2s ease, border-color 0.2s ease;
+  .weight-row .weight-name {
+    grid-column: 1; grid-row: 1;
+    font-family: var(--body); font-size: 13px; color: var(--ink);
   }
-  .check-row.on .box { background: var(--ink); border-color: var(--ink); }
-  .check-row .lbl {
-    font-family: var(--body); font-weight: 500; font-size: 13.5px; color: var(--ink);
+  .weight-row .weight-val {
+    grid-column: 2; grid-row: 1;
+    font-family: var(--mono); font-size: 11px; color: var(--muted);
+    font-variant-numeric: tabular-nums; text-align: right;
+  }
+  .weight-row input[type="range"] {
+    grid-column: 1 / -1; grid-row: 2;
+    appearance: none; -webkit-appearance: none;
+    width: 100%; height: 4px;
+    background: var(--rule-soft);
+    outline: none; cursor: pointer; border-radius: 0;
+    margin: 2px 0 0;
+  }
+  .weight-row input[type="range"]::-webkit-slider-thumb {
+    appearance: none; -webkit-appearance: none;
+    width: 14px; height: 14px;
+    background: var(--ink); border: 1px solid var(--ink);
+    cursor: pointer; border-radius: 0; margin-top: -5px;
+  }
+  .weight-row input[type="range"]::-moz-range-thumb {
+    width: 14px; height: 14px;
+    background: var(--ink); border: 1px solid var(--ink);
+    border-radius: 0; cursor: pointer;
+  }
+  .weight-row.zero .weight-name,
+  .weight-row.zero .weight-val { color: var(--muted-2); }
+
+  .hint {
+    font-family: var(--body); font-style: italic; font-size: 12px;
+    color: var(--muted); margin-top: 4px; line-height: 1.45;
+  }
+
+  /* Scenario list */
+  .scn-item {
+    border-top: 1px solid var(--rule-soft);
+    padding: 8px 0;
+  }
+  .scn-item:first-child { border-top: none; }
+  .scn-row1 {
+    display: flex; justify-content: space-between; align-items: center; gap: 8px;
+  }
+  .scn-name {
+    font-family: var(--body); font-weight: 600; font-size: 13px; color: var(--ink);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .scn-actions { display: flex; gap: 4px; flex-shrink: 0; }
+  .scn-row2 {
+    font-family: var(--mono); font-size: 10.5px; color: var(--muted);
+    margin-top: 3px; font-variant-numeric: tabular-nums;
+  }
+  .scn-del { padding: 2px 7px; }
+
+  /* District analytics drawer — overlays the map, bottom-right */
+  .drawer {
+    position: absolute; right: 12px; bottom: 12px;
+    background: var(--paper); border: 1px solid var(--ink);
+    padding: 12px 14px;
+    width: 320px; max-width: calc(100% - 24px);
+    z-index: 25;
+    font-family: var(--body); color: var(--ink);
+  }
+  .drawer-head {
+    display: flex; justify-content: space-between; align-items: flex-start;
+    gap: 12px; margin-bottom: 10px;
+  }
+  .drawer-kicker {
+    font-family: var(--mono); font-size: 10px; font-weight: 500;
+    text-transform: uppercase; letter-spacing: 0.14em; color: var(--muted);
+  }
+  .drawer-title {
+    font-family: var(--display); font-weight: 700; font-size: 20px;
+    color: var(--ink); line-height: 1.1; margin-top: 2px;
+    font-variant-numeric: tabular-nums;
+  }
+  .drawer-grid {
+    display: grid; grid-template-columns: 1fr 1fr 1fr;
+    border-top: 1px solid var(--rule-soft);
+    border-bottom: 1px solid var(--rule-soft);
+  }
+  .drawer-stat {
+    padding: 8px 6px;
+    border-right: 1px solid var(--rule-soft);
+  }
+  .drawer-stat:nth-child(3n) { border-right: none; }
+  .drawer-stat:nth-child(n+4) { border-top: 1px solid var(--rule-soft); }
+  .drawer-stat .v {
+    font-family: var(--display); font-weight: 700; font-size: 16px;
+    color: var(--ink); font-variant-numeric: tabular-nums;
+    letter-spacing: -0.01em; line-height: 1.1;
+  }
+  .drawer-stat .k {
+    font-family: var(--mono); font-size: 9.5px; font-weight: 500;
+    text-transform: uppercase; letter-spacing: 0.12em;
+    color: var(--muted); margin-top: 3px;
+  }
+  .drawer-label {
+    font-family: var(--mono); font-size: 10px; font-weight: 500;
+    text-transform: uppercase; letter-spacing: 0.14em; color: var(--muted);
+    margin: 12px 0 6px;
+  }
+  #dr-margin-chart {
+    width: 100%; height: 50px; display: block; background: transparent;
+  }
+  .drawer-hint {
+    font-family: var(--body); font-style: italic; font-size: 11px;
+    color: var(--muted); margin-top: 6px; line-height: 1.45;
   }
 
   /* Buttons — flat, hairline, ink-fill for primary */
@@ -409,7 +515,7 @@
           <div class="label">Iterations</div>
           <input class="nin" type="number" id="in-iters" value="2000" min="100" max="100000" step="100">
         </div>
-        <div style="margin-top:10px">
+        <div style="margin-top:12px">
           <div class="label">Population tolerance</div>
           <div class="slider-track" id="tol-track">
             <div class="slider-fill" id="tol-fill"></div>
@@ -417,24 +523,89 @@
           </div>
           <div style="font-family:var(--mono);font-weight:600;font-size:12px;color:var(--ink);font-variant-numeric:tabular-nums" id="tol-label">±10.0%</div>
         </div>
+        <div style="margin-top:12px">
+          <div class="label">Annealing temperature</div>
+          <input class="nin" type="number" id="in-temp" value="0" min="0" max="10000" step="10" title="T=0 greedy ReCom. T>0 = simulated annealing — uphill moves accepted with probability exp(-ΔE/T).">
+          <div class="hint">T=0 greedy. Higher = more exploration.</div>
+        </div>
+        <div style="margin-top:12px">
+          <div class="label">Polish flips per ReCom step</div>
+          <input class="nin" type="number" id="in-flips" value="3" min="0" max="50" step="1" title="Number of single-mahalle flip moves before each ReCom step in Polish mode. Higher = more fine-grained popDev work.">
+        </div>
+        <div style="margin-top:12px">
+          <div class="label">RNG seed</div>
+          <div style="display:grid;grid-template-columns:1fr auto;gap:6px">
+            <input class="nin" type="number" id="in-seed" value="42" min="0" max="2147483647" step="1" title="Seed used by the worker's PRNG. Lock to reproduce a run exactly.">
+            <button class="toggle-btn" id="btn-seed-lock" title="Lock = reuse the seed shown above. Auto = generate a fresh seed for each run.">Auto</button>
+          </div>
+        </div>
       </div>
 
       <div class="panel">
-        <h3>Score</h3>
-        <button class="cmd" id="btn-antimander-preset" style="width:100%;margin-bottom:8px" title="Antimander's fair-redistricting bundle: minimize efficiency gap, maximize competitiveness, keep districts compact (cut-edge proxy), with population balance as hard constraint.">Antimander fair preset</button>
-        <div class="check-row on" data-key="cutEdges"><div class="box"></div><div class="lbl">Cut edges (compactness)</div></div>
-        <div class="check-row on" data-key="popDev"><div class="box"></div><div class="lbl">Population balance</div></div>
-        <div class="check-row" data-key="effGap"><div class="box"></div><div class="lbl">Efficiency gap</div></div>
-        <div class="check-row" data-key="competitiveness"><div class="box"></div><div class="lbl">Competitiveness</div></div>
-        <div class="check-row" data-key="meanMedian"><div class="box"></div><div class="lbl">Mean–median</div></div>
-        <div class="check-row" data-key="ilSplits"><div class="box"></div><div class="lbl">İl splits penalty</div></div>
+        <h3>Optimization</h3>
+        <div class="label">Presets</div>
+        <div class="presets">
+          <button class="toggle-btn" data-preset="antimander" title="Antimander balanced: efficiency gap + competitiveness + compactness.">Antimander</button>
+          <button class="toggle-btn" data-preset="compactness" title="Tight, compact districts. High cut-edge penalty, partisan blind.">Compactness</button>
+          <button class="toggle-btn" data-preset="partisan" title="Partisan fairness: minimize efficiency gap and mean–median.">Partisan fair</button>
+          <button class="toggle-btn" data-preset="competitive" title="Competitive races: minimize landslide margins.">Competitive</button>
+          <button class="toggle-btn" data-preset="provinces" title="Keep districts inside il (province) boundaries where possible.">İl-preserving</button>
+          <button class="toggle-btn" data-preset="poponly" title="Population balance only. No compactness or fairness pressure.">Pop only</button>
+        </div>
+        <div class="label" style="margin-top:14px">Weights</div>
+        <div class="weight-row" data-key="cutEdges">
+          <span class="weight-name">Compactness (cut edges)</span>
+          <span class="weight-val">1</span>
+          <input type="range" data-weight="cutEdges" min="0" max="10" step="0.5" value="1">
+        </div>
+        <div class="weight-row" data-key="popDev">
+          <span class="weight-name">Population balance</span>
+          <span class="weight-val">50</span>
+          <input type="range" data-weight="popDev" min="0" max="100" step="5" value="50">
+        </div>
+        <div class="weight-row zero" data-key="effGap">
+          <span class="weight-name">Efficiency gap</span>
+          <span class="weight-val">0</span>
+          <input type="range" data-weight="effGap" min="0" max="20" step="1" value="0">
+        </div>
+        <div class="weight-row zero" data-key="competitiveness">
+          <span class="weight-name">Competitiveness</span>
+          <span class="weight-val">0</span>
+          <input type="range" data-weight="competitiveness" min="0" max="20" step="1" value="0">
+        </div>
+        <div class="weight-row zero" data-key="meanMedian">
+          <span class="weight-name">Mean–median</span>
+          <span class="weight-val">0</span>
+          <input type="range" data-weight="meanMedian" min="0" max="20" step="1" value="0">
+        </div>
+        <div class="weight-row zero" data-key="ilSplits">
+          <span class="weight-name">İl-split penalty</span>
+          <span class="weight-val">0</span>
+          <input type="range" data-weight="ilSplits" min="0" max="10" step="0.5" value="0">
+        </div>
       </div>
 
       <div class="panel">
-        <h3>Color</h3>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <h3>Map appearance</h3>
+        <div class="label">Color mode</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:12px">
           <button class="toggle-btn active" id="color-districts">Districts</button>
           <button class="toggle-btn" id="color-partisan">Partisan</button>
+        </div>
+        <div class="weight-row">
+          <span class="weight-name">District border width</span>
+          <span class="weight-val" id="map-distwidth-val">1.1</span>
+          <input type="range" id="map-distwidth" min="0.3" max="3" step="0.1" value="1.1">
+        </div>
+        <div class="weight-row">
+          <span class="weight-name">Mahalle border</span>
+          <span class="weight-val" id="map-mahopacity-val">10%</span>
+          <input type="range" id="map-mahopacity" min="0" max="50" step="2" value="10">
+        </div>
+        <div class="weight-row">
+          <span class="weight-name">Tossup band</span>
+          <span class="weight-val" id="map-tossupband-val">±3%</span>
+          <input type="range" id="map-tossupband" min="0" max="15" step="0.5" value="3">
         </div>
       </div>
 
@@ -452,6 +623,23 @@
           <button class="cmd" id="btn-export-png" disabled>Export PNG</button>
         </div>
       </div>
+
+      <div class="panel">
+        <h3>Scenarios</h3>
+        <div class="label">Save current</div>
+        <div style="display:grid;grid-template-columns:1fr auto;gap:6px">
+          <input class="nin" type="text" id="scn-name" placeholder="Name (optional)" autocomplete="off">
+          <button class="toggle-btn" id="scn-save" title="Saves the active region's assignment + weights + popTol + vpd to localStorage.">Save</button>
+        </div>
+        <div class="hint">Saves the active region's assignment plus current weights, tolerance, and VPD target.</div>
+        <div class="label" style="margin-top:14px">Saved</div>
+        <div id="scn-list"></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:10px">
+          <button class="cmd" id="scn-export-btn">Export JSON</button>
+          <button class="cmd" id="scn-import-btn">Import JSON</button>
+        </div>
+        <input type="file" id="scn-import-file" accept="application/json" style="display:none">
+      </div>
     </div>
 
     <div>
@@ -468,6 +656,26 @@
             <div class="progress-bar"><div id="progress-fill"></div></div>
             <div class="progress-pct" id="progress-pct">0 / 7</div>
           </div>
+        </div>
+        <div class="drawer" id="district-drawer" style="display:none">
+          <div class="drawer-head">
+            <div>
+              <div class="drawer-kicker">District</div>
+              <div class="drawer-title" id="dr-title">—</div>
+            </div>
+            <button class="toggle-btn" id="dr-close" title="Close (Esc)">×</button>
+          </div>
+          <div class="drawer-grid">
+            <div class="drawer-stat"><div class="v" id="dr-share">—</div><div class="k">Muh share</div></div>
+            <div class="drawer-stat"><div class="v" id="dr-margin">—</div><div class="k">Margin</div></div>
+            <div class="drawer-stat"><div class="v" id="dr-winner">—</div><div class="k">Winner</div></div>
+            <div class="drawer-stat"><div class="v" id="dr-pop">—</div><div class="k">Population</div></div>
+            <div class="drawer-stat"><div class="v" id="dr-popdev">—</div><div class="k">Pop. dev</div></div>
+            <div class="drawer-stat"><div class="v" id="dr-mahs">—</div><div class="k">Mahalleler</div></div>
+          </div>
+          <div class="drawer-label">Margin distribution (this region)</div>
+          <canvas id="dr-margin-chart"></canvas>
+          <div class="drawer-hint" id="dr-hint">Bars left-of-center = Iktidar margin; right = Muhalefet. Highlighted bar = this district.</div>
         </div>
       </div>
 
@@ -1419,30 +1627,18 @@ function flipStep(S, weights, rng) {
 // use {cutEdges:0, popDev:1} so cut-edge minimization can't block popDev gains
 // (the original score function cares about cutEdges and would reject 0.1%
 // popDev improvements that cost 5+ cut edges).
-function polishStep(S, tol, weights, rng, scratchScore) {
-  // 3 flip attempts under polish weights, then 1 ReCom under full weights.
-  const wPolish = scratchScore;  // pre-built {cutEdges:0, popDev:1, ilSplits:0}
-  const trueScore = S.score;
+function polishStep(S, tol, weights, rng, scratchScore, polishFlips) {
+  const wPolish = scratchScore;
   S.score = scoreFromState(S, wPolish);
-  const flipped1 = flipStep(S, wPolish, rng);
-  const flipped2 = flipStep(S, wPolish, rng);
-  const flipped3 = flipStep(S, wPolish, rng);
-  S.score = scoreFromState(S, weights);  // restore for ReCom under full weights
+  const flipped = [];
+  for (let i = 0; i < polishFlips; i++) {
+    const f = flipStep(S, wPolish, rng);
+    if (f) for (const n of f) flipped.push(n);
+  }
+  S.score = scoreFromState(S, weights);
   const recomChanged = recomStepInc(S, tol, weights, 0, rng);
-  // Aggregate changed node ids for tick diff
-  let total = 0;
-  if (flipped1) total += flipped1.length;
-  if (flipped2) total += flipped2.length;
-  if (flipped3) total += flipped3.length;
-  if (recomChanged) total += recomChanged.length;
-  if (total === 0) return null;
-  const out = new Array(total);
-  let oi = 0;
-  if (flipped1) for (const n of flipped1) out[oi++] = n;
-  if (flipped2) for (const n of flipped2) out[oi++] = n;
-  if (flipped3) for (const n of flipped3) out[oi++] = n;
-  if (recomChanged) for (const n of recomChanged) out[oi++] = n;
-  return out;
+  if (recomChanged) for (const n of recomChanged) flipped.push(n);
+  return flipped.length ? flipped : null;
 }
 
 // State persists between 'run' and 'continue' so the user can polish
@@ -1523,6 +1719,7 @@ self.onmessage = (e) => {
     let lastPost = 0;
     const totalIters = m.iters;
     const T0 = m.T0 || 0;
+    const polishFlips = (m.polishFlips != null) ? (m.polishFlips | 0) : 3;
     const seenChanged = new Uint8Array(R.N);
     const pendingNodes = [];
 
@@ -1537,11 +1734,11 @@ self.onmessage = (e) => {
       }
       if (paused) { setTimeout(tick, 100); return; }
 
-      const BATCH = polish ? 8 : 30;  // polish does more work per iter (3 flips + 1 ReCom)
+      const BATCH = polish ? 8 : 30;  // polish does more work per iter (N flips + 1 ReCom)
       for (let b = 0; b < BATCH && iter < totalIters; b++, iter++) {
         const T = T0 * (1 - iter / totalIters);
         const changed = polish
-          ? polishStep(S, tol, weights, rng, wPolish)
+          ? polishStep(S, tol, weights, rng, wPolish, polishFlips)
           : recomStepInc(S, tol, weights, T, rng);
         if (changed) {
           for (let ci = 0; ci < changed.length; ci++) {
@@ -1751,34 +1948,306 @@ tolTrack.addEventListener('mousedown', (e) => { tolDrag = true; handleTol(e); })
 window.addEventListener('mousemove', (e) => { if (tolDrag) handleTol(e); });
 window.addEventListener('mouseup',   () => tolDrag = false);
 
-document.querySelectorAll('.check-row').forEach(el => {
-  el.onclick = () => {
-    el.classList.toggle('on');
-    const k = el.dataset.key;
-    state.weights[k] = el.classList.contains('on') ? defaultWeight(k) : 0;
-  };
+// Optimization presets — each emphasizes a different Antimander-style
+// objective. Sliders below give continuous per-objective control; clicking
+// a preset just snaps all six sliders to a named configuration.
+const PRESETS = {
+  antimander:  { cutEdges: 5,  popDev: 50, effGap: 5,  competitiveness: 5,  meanMedian: 0, ilSplits: 0 },
+  compactness: { cutEdges: 10, popDev: 50, effGap: 0,  competitiveness: 0,  meanMedian: 0, ilSplits: 0 },
+  partisan:    { cutEdges: 1,  popDev: 50, effGap: 20, competitiveness: 0,  meanMedian: 5, ilSplits: 0 },
+  competitive: { cutEdges: 1,  popDev: 50, effGap: 0,  competitiveness: 20, meanMedian: 0, ilSplits: 0 },
+  provinces:   { cutEdges: 1,  popDev: 50, effGap: 0,  competitiveness: 0,  meanMedian: 0, ilSplits: 10 },
+  poponly:     { cutEdges: 0,  popDev: 50, effGap: 0,  competitiveness: 0,  meanMedian: 0, ilSplits: 0 },
+};
+function setWeight(k, w) {
+  state.weights[k] = w;
+  const slider = document.querySelector(`input[type="range"][data-weight="${k}"]`);
+  if (!slider) return;
+  slider.value = String(w);
+  const row = slider.closest('.weight-row');
+  row.querySelector('.weight-val').textContent = w;
+  row.classList.toggle('zero', w === 0);
+}
+function applyPreset(name) {
+  const p = PRESETS[name]; if (!p) return;
+  for (const [k, w] of Object.entries(p)) setWeight(k, w);
+  document.querySelectorAll('[data-preset]').forEach(b =>
+    b.classList.toggle('active', b.dataset.preset === name));
+}
+document.querySelectorAll('[data-preset]').forEach(btn => {
+  btn.onclick = () => applyPreset(btn.dataset.preset);
 });
-function defaultWeight(k) {
-  if (k === 'cutEdges')        return 1;
-  if (k === 'popDev')          return 50;
-  if (k === 'meanMedian')      return 5;
-  if (k === 'effGap')          return 5;
-  if (k === 'competitiveness') return 5;
-  if (k === 'ilSplits')        return 2;
-  return 1;
+// RNG seed: "Auto" generates a fresh seed each run; "Locked" reuses the
+// number in the input so a run is exactly reproducible.
+$('btn-seed-lock').onclick = () => {
+  const b = $('btn-seed-lock');
+  const locked = !b.classList.toggle('active');
+  b.textContent = locked ? 'Auto' : 'Locked';
+};
+function getRunSeed(key, k) {
+  const locked = $('btn-seed-lock').classList.contains('active');
+  if (locked) {
+    return (+$('in-seed').value | 0) & 0x7FFFFFFF;
+  }
+  const s = (Date.now() ^ key.charCodeAt(0) * 7919 ^ (k * 1009)) & 0x7FFFFFFF;
+  $('in-seed').value = s;  // show the actual seed used for this run
+  return s;
 }
 
-// Antimander's fair-redistricting bundle: minimize efficiency gap +
-// maximize competitiveness + keep cut-edge compactness, with population
-// balance as a hard constraint (the existing tolerance slider).
-$('btn-antimander-preset').onclick = () => {
-  const preset = { cutEdges: 1, popDev: 50, effGap: 5, competitiveness: 5, meanMedian: 0, ilSplits: 0 };
-  for (const [k, w] of Object.entries(preset)) {
+document.querySelectorAll('input[type="range"][data-weight]').forEach(slider => {
+  slider.addEventListener('input', () => {
+    const k = slider.dataset.weight;
+    const w = Number(slider.value);
     state.weights[k] = w;
-    const row = document.querySelector(`.check-row[data-key="${k}"]`);
-    if (row) row.classList.toggle('on', w > 0);
+    const row = slider.closest('.weight-row');
+    row.querySelector('.weight-val').textContent = w;
+    row.classList.toggle('zero', w === 0);
+    // Manual change clears preset highlight
+    document.querySelectorAll('[data-preset]').forEach(b => b.classList.remove('active'));
+  });
+});
+
+// Map appearance — live update of stroke width, mahalle opacity, tossup band.
+// These rewrite SVG attributes directly (cheap) and tweak shared state used
+// by partisanColor (which then drives the next recolor).
+let _tossupBand = 0.03;  // ±3% default; used by partisanColor
+$('map-distwidth').addEventListener('input', () => {
+  const v = +$('map-distwidth').value;
+  $('map-distwidth-val').textContent = v.toFixed(1);
+  for (const r of Object.values(state.regions)) {
+    if (r?.borderEl) r.borderEl.setAttribute('stroke-width', String(v));
   }
+});
+$('map-mahopacity').addEventListener('input', () => {
+  const v = +$('map-mahopacity').value;
+  $('map-mahopacity-val').textContent = v + '%';
+  const op = (v / 100).toFixed(2);
+  for (const meta of REGIONS) {
+    const els = state.pathEls[meta.key];
+    if (!els) continue;
+    for (const el of els) el.setAttribute('stroke-opacity', op);
+  }
+});
+$('map-tossupband').addEventListener('input', () => {
+  const v = +$('map-tossupband').value;
+  $('map-tossupband-val').textContent = '±' + v.toFixed(1) + '%';
+  _tossupBand = v / 100;
+  if (state.colorMode === 'partisan') recolorAll();
+});
+
+// Scenario library — save/load/list/export/import. Each scenario captures
+// the active region's assignment + weights + tolerance + VPD target so a
+// configuration can be reproduced or compared later.
+const SCN_KEY = 'tr-scenarios-v1';
+function loadScenarioList() {
+  try { return JSON.parse(localStorage.getItem(SCN_KEY) || '[]'); } catch { return []; }
+}
+function persistScenarioList(list) {
+  try { localStorage.setItem(SCN_KEY, JSON.stringify(list)); }
+  catch (e) { status('Scenario save failed — localStorage full or blocked.', 'err'); }
+}
+function saveCurrentScenario() {
+  if (state.active === 'national') { status('Select a region first.', 'err'); return; }
+  const r = state.regions[state.active];
+  if (!r) return;
+  const list = loadScenarioList();
+  const scn = {
+    id: 'scn_' + Date.now().toString(36) + '_' + ((Math.random() * 1e6) | 0).toString(36),
+    name: ($('scn-name').value || '').trim() || `${r.label} · ${new Date().toLocaleString()}`,
+    ts: Date.now(),
+    region: state.active,
+    k: r.k || null,
+    weights: { ...state.weights },
+    tol: state.tol,
+    vpd: state.vpd,
+    assignment: r.assignment ? Array.from(r.assignment) : null,
+    metrics: r.metrics || null,
+  };
+  list.unshift(scn);
+  persistScenarioList(list);
+  $('scn-name').value = '';
+  renderScenarioList();
+  status(`Saved "${scn.name}"`, '');
+}
+function deleteScenario(id) {
+  const list = loadScenarioList().filter(s => s.id !== id);
+  persistScenarioList(list);
+  renderScenarioList();
+}
+function loadScenario(id) {
+  const scn = loadScenarioList().find(s => s.id === id);
+  if (!scn) return;
+  // Restore weights and surface them in the sliders.
+  for (const [k, w] of Object.entries(scn.weights || {})) setWeight(k, w);
+  document.querySelectorAll('[data-preset]').forEach(b => b.classList.remove('active'));
+  // Restore popTol + vpd.
+  if (typeof scn.tol === 'number') setTolUI(scn.tol);
+  if (typeof scn.vpd === 'number') {
+    state.vpd = scn.vpd;
+    $('in-vpd').value = scn.vpd;
+    renderRegionList(); updateHeaderTotals();
+  }
+  // Restore assignment for the saved region.
+  const r = state.regions[scn.region];
+  if (r && scn.assignment && Array.isArray(scn.assignment)) {
+    r.assignment = new Int32Array(scn.assignment);
+    r.metrics = scn.metrics || null;
+    r.status = 'done';
+    r.scoreHist = []; r.iter = 0;
+    if (state.active !== scn.region) selectRegion(scn.region);
+    else { recolorAll(); redrawDistrictBorders(scn.region); updateMetricsPanel(); }
+    renderRegionList(); updateButtons();
+  }
+  status(`Loaded "${scn.name}"`, '');
+}
+function renderScenarioList() {
+  const list = loadScenarioList();
+  const c = $('scn-list');
+  if (list.length === 0) {
+    c.innerHTML = '<div class="hint">No saved scenarios yet.</div>';
+    return;
+  }
+  c.innerHTML = list.map(s => {
+    const regionLabel = (REGIONS.find(r => r.key === s.region) || {}).label || s.region;
+    const pd = s.metrics?.popDev != null ? (s.metrics.popDev * 100).toFixed(1) + '%' : '—';
+    return `
+      <div class="scn-item" data-id="${s.id}">
+        <div class="scn-row1">
+          <span class="scn-name">${escapeHtml(s.name)}</span>
+          <span class="scn-actions">
+            <button class="toggle-btn scn-load" data-id="${s.id}">Load</button>
+            <button class="toggle-btn scn-del" data-id="${s.id}" title="Delete this scenario">×</button>
+          </span>
+        </div>
+        <div class="scn-row2">${regionLabel} · k=${s.k ?? '—'} · popDev ${pd}</div>
+      </div>`;
+  }).join('');
+  c.querySelectorAll('.scn-load').forEach(b => b.onclick = () => loadScenario(b.dataset.id));
+  c.querySelectorAll('.scn-del').forEach(b => b.onclick = () => {
+    if (confirm('Delete this scenario?')) deleteScenario(b.dataset.id);
+  });
+}
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+$('scn-save').onclick = saveCurrentScenario;
+$('scn-name').addEventListener('keydown', e => { if (e.key === 'Enter') saveCurrentScenario(); });
+$('scn-export-btn').onclick = () => {
+  const blob = new Blob([JSON.stringify(loadScenarioList(), null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `tr-scenarios-${Date.now()}.json`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 };
+$('scn-import-btn').onclick = () => $('scn-import-file').click();
+$('scn-import-file').addEventListener('change', async e => {
+  const f = e.target.files?.[0]; if (!f) return;
+  try {
+    const text = await f.text();
+    const incoming = JSON.parse(text);
+    if (!Array.isArray(incoming)) throw new Error('expected JSON array');
+    const merged = [...incoming, ...loadScenarioList()];
+    persistScenarioList(merged);
+    renderScenarioList();
+    status(`Imported ${incoming.length} scenario(s)`, '');
+  } catch (err) {
+    status(`Import failed: ${err.message}`, 'err');
+  }
+  e.target.value = '';
+});
+renderScenarioList();
+
+// Analytics drawer — opens on mahalle click in active region. Shows that
+// mahalle's district stats plus a margin-distribution histogram across all
+// districts in the region with the clicked district highlighted.
+let _drawerCtx = null;
+function openDistrictDrawer(regionKey, d) {
+  const r = state.regions[regionKey];
+  if (!r) return;
+  const stats = ensureDistrictStats(r);
+  if (!stats || !stats[d]) return;
+  const s = stats[d];
+  const regionLabel = (REGIONS.find(x => x.key === regionKey) || {}).label || regionKey;
+  $('dr-title').textContent = `${regionLabel} · #${d + 1}`;
+  $('dr-share').textContent  = (s.share * 100).toFixed(1) + '%';
+  $('dr-margin').textContent = (s.margin * 100).toFixed(1) + '%';
+  $('dr-winner').textContent = s.winner === 'Muhalefet' ? 'Muh' : s.winner === 'Iktidar' ? 'İkt' : '—';
+  $('dr-pop').textContent    = s.pop.toLocaleString('tr-TR');
+  $('dr-popdev').textContent = (s.popDev >= 0 ? '+' : '') + (s.popDev * 100).toFixed(1) + '%';
+  $('dr-mahs').textContent   = s.n.toLocaleString('tr-TR');
+  $('district-drawer').style.display = '';
+  drawMarginChart(stats, d);
+}
+function closeDistrictDrawer() {
+  $('district-drawer').style.display = 'none';
+}
+$('dr-close').onclick = closeDistrictDrawer;
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && $('district-drawer').style.display !== 'none') closeDistrictDrawer();
+});
+
+// Vertical bar histogram of district shares. X = share (0..1), Y = count.
+// Bars left of 0.5 are red (Iktidar); right are blue (Muhalefet); center
+// bar (within tossup band) is yellow. The bin containing the clicked
+// district is outlined.
+function drawMarginChart(stats, hiD) {
+  const c = $('dr-margin-chart');
+  const ctx = c.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const w = c.clientWidth, h = c.clientHeight;
+  c.width = w * dpr; c.height = h * dpr;
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, w, h);
+  const NBINS = 25;
+  const bins = new Int32Array(NBINS);
+  const hiShare = stats[hiD]?.share ?? 0.5;
+  const hiBin = Math.min(NBINS - 1, Math.max(0, Math.floor(hiShare * NBINS)));
+  for (const s of stats) {
+    const b = Math.min(NBINS - 1, Math.max(0, Math.floor(s.share * NBINS)));
+    bins[b]++;
+  }
+  let mx = 0;
+  for (const v of bins) if (v > mx) mx = v;
+  if (mx === 0) mx = 1;
+  const band = (typeof _tossupBand === 'number' ? _tossupBand : 0.03);
+  const blue = getCSSVar('--blue') || '#2a4a72';
+  const red  = getCSSVar('--red')  || '#a83a30';
+  const yel  = getCSSVar('--yellow') || '#c89834';
+  const ink  = getCSSVar('--ink') || '#1d1810';
+  const ruleSoft = getCSSVar('--rule-soft') || '#c1ad84';
+  const innerH = h - 12;
+  const barW = w / NBINS;
+  for (let i = 0; i < NBINS; i++) {
+    const share = (i + 0.5) / NBINS;
+    const fill = (share >= 0.5 - band && share <= 0.5 + band) ? yel
+               : (share < 0.5 ? red : blue);
+    const bh = (bins[i] / mx) * innerH;
+    const x = i * barW;
+    const y = innerH - bh;
+    ctx.fillStyle = fill;
+    ctx.fillRect(x + 0.5, y, Math.max(1, barW - 1), bh);
+  }
+  // Highlight the clicked district's bin with an ink outline.
+  if (bins[hiBin] > 0) {
+    const bh = (bins[hiBin] / mx) * innerH;
+    const x = hiBin * barW;
+    const y = innerH - bh;
+    ctx.strokeStyle = ink; ctx.lineWidth = 1.5;
+    ctx.strokeRect(x + 0.5, y - 0.5, Math.max(1, barW - 1), bh + 1);
+  }
+  // Midline at 50%
+  ctx.strokeStyle = ruleSoft; ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(w / 2, 0); ctx.lineTo(w / 2, innerH);
+  ctx.stroke();
+  // X-axis labels (0%, 50%, 100%)
+  ctx.fillStyle = getCSSVar('--muted') || '#7e6a4a';
+  ctx.font = "500 9.5px 'IBM Plex Mono', ui-monospace, monospace";
+  ctx.textAlign = 'left';  ctx.fillText('0%',  2, h - 1);
+  ctx.textAlign = 'center'; ctx.fillText('50%', w / 2, h - 1);
+  ctx.textAlign = 'right'; ctx.fillText('100%', w - 2, h - 1);
+}
 
 $('color-districts').onclick = () => { state.colorMode = 'districts'; setColorMode(); };
 $('color-partisan').onclick  = () => { state.colorMode = 'partisan';  setColorMode(); };
@@ -1903,7 +2372,18 @@ function processRegion(meta, tj) {
     el.setAttribute('stroke-opacity', '0.10');
     el.dataset.region = meta.key; el.dataset.idx = i;
     el.style.cursor = 'pointer';
-    el.addEventListener('click', () => selectRegion(meta.key));
+    el.addEventListener('click', () => {
+      // If region is already active and has districts, open the analytics
+      // drawer for the clicked mahalle's district. Otherwise select region.
+      const cur = state.active;
+      const r = state.regions[meta.key];
+      if (cur === meta.key && r?.assignment) {
+        const idx = +el.dataset.idx;
+        const d = r.assignment[idx];
+        if (Number.isFinite(d) && d >= 0) { openDistrictDrawer(meta.key, d); return; }
+      }
+      selectRegion(meta.key);
+    });
     el.addEventListener('mouseenter', onMahalleHover);
     el.addEventListener('mouseleave', onMahalleLeave);
     el.addEventListener('mousemove', onMahalleMove);
@@ -2142,8 +2622,9 @@ function runRegion(key) {
     type: 'run', key, k,
     tol: state.tol, weights: { ...state.weights },
     iters: +$('in-iters').value || 2000,
-    seed: (Date.now() ^ key.charCodeAt(0) ^ (k * 1009)) & 0x7FFFFFFF,
-    T0: 0,
+    seed: getRunSeed(key, k),
+    T0: +$('in-temp').value || 0,
+    polishFlips: +$('in-flips').value || 3,
   });
 }
 
@@ -2164,8 +2645,9 @@ function startPolish() {
     type: 'continue', key,
     tol: state.tol, weights: { ...state.weights },
     iters: +$('in-iters').value || 2000,
-    seed: (Date.now() ^ key.charCodeAt(0) * 7919) & 0x7FFFFFFF,
-    T0: 0,
+    seed: getRunSeed(key, r.k || 1),
+    T0: +$('in-temp').value || 0,
+    polishFlips: +$('in-flips').value || 3,
     polish: true,
   });
 }
@@ -2522,14 +3004,16 @@ function partisanColor(s) {
       .clamp(true);
     _scalesTheme = theme;
   }
-  if (s >= 0.47 && s <= 0.53) return getCSSVar('--yellow') || '#c89834';
-  if (s < 0.47) {
-    // s ∈ [0.20, 0.47] → t ∈ [0, 1]. Saturate at deepest red for s ≤ 0.20.
-    const t = (s - 0.20) / (0.47 - 0.20);
+  const band = (typeof _tossupBand === 'number' ? _tossupBand : 0.03);
+  const lo = 0.5 - band, hi = 0.5 + band;
+  if (s >= lo && s <= hi) return getCSSVar('--yellow') || '#c89834';
+  if (s < lo) {
+    // Saturate at deepest red for s ≤ 0.20.
+    const t = (s - 0.20) / Math.max(0.01, lo - 0.20);
     return _iktidarScale(t);
   }
-  // s ∈ [0.53, 0.80] → t ∈ [0, 1]. Saturate at deepest blue for s ≥ 0.80.
-  const t = (s - 0.53) / (0.80 - 0.53);
+  // Saturate at deepest blue for s ≥ 0.80.
+  const t = (s - hi) / Math.max(0.01, 0.80 - hi);
   return _muhalefetScale(t);
 }
 
