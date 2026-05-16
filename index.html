@@ -364,8 +364,11 @@
     transition: background 0.12s;
   }
   .zoom-ctrl button:last-child { border-bottom: none; }
-  .zoom-ctrl button:hover { background: var(--bg-2); }
-  .zoom-ctrl button:active { background: var(--ink); color: var(--paper); }
+  .zoom-ctrl button:hover:not(:disabled) { background: var(--bg-2); }
+  .zoom-ctrl button:active:not(:disabled) { background: var(--ink); color: var(--paper); }
+  .zoom-ctrl button:disabled { opacity: 0.3; cursor: not-allowed; }
+  .zoom-ctrl button.active { background: var(--ink); color: var(--paper); }
+  .zoom-ctrl button#btn-optimize { font-size: 14px; }
   #map { cursor: grab; }
   #map:active { cursor: grabbing; }
 
@@ -648,6 +651,7 @@
           <button id="btn-zoom-in"  title="Zoom in (or scroll up)">+</button>
           <button id="btn-zoom-out" title="Zoom out (or scroll down)">−</button>
           <button id="btn-zoom-reset" title="Reset to fit">⌖</button>
+          <button id="btn-optimize" disabled title="Optimize — flatten mahalle paths into per-district shapes for fast zoom (like the initial load). Toggle to restore mahalle-level click/hover.">⚡</button>
         </div>
         <div class="map-overlay" id="legend">
           <span style="font-weight:800;letter-spacing:0.04em">Loading regions…</span>
@@ -2248,6 +2252,7 @@ const state = {
   pathEls: {},
   running: new Set(),   // keys of regions currently running
   paused: false,
+  optimized: false,     // true when baked per-district paths replace mahalle paths for fast zoom
 };
 
 const $ = (id) => document.getElementById(id);
@@ -2987,6 +2992,7 @@ $('btn-export-png').onclick = exportMapPNG;
 $('btn-zoom-in').onclick    = () => zoomBy(1.4);
 $('btn-zoom-out').onclick   = () => zoomBy(1 / 1.4);
 $('btn-zoom-reset').onclick = zoomReset;
+$('btn-optimize').onclick   = toggleOptimize;
 
 function status(l, r, isErr) {
   $('status-l').textContent = l;
@@ -3014,6 +3020,10 @@ function updateButtons() {
                                    : (!r || r.status !== 'done' || activeRunning);
   $('btn-export').disabled = isNat ? !natR?.assignment : !r?.assignment;
   $('btn-export-png').disabled = isNat ? !natR?.assignment : !r?.assignment;
+  // Optimize enabled when something is paintable per-district AND idle, OR
+  // already optimized (so the user can always toggle back off).
+  const btnOpt = $('btn-optimize');
+  if (btnOpt) btnOpt.disabled = !state.optimized && !isOptimizable();
   if (isNat) $('btn-start').textContent = 'Pick region or Run Türkiye';
   else if (isIl) $('btn-start').textContent = `Run ${state.regions.il?.label || 'İl'}`;
   else $('btn-start').textContent = `Run ${REGIONS.find(m => m.key === state.active)?.label || ''}`;
@@ -3115,6 +3125,165 @@ function zoomBy(factor) {
 function zoomReset() {
   if (!state.zoom || !state.zoomSvg) return;
   state.zoomSvg.transition().duration(220).call(state.zoom.transform, d3.zoomIdentity);
+}
+
+// ── Map zoom optimizer ────────────────────────────────────────────────
+// Zoom/pan slows after redistricting because the browser must re-rasterize
+// every mahalle path (~51K nationally) on each frame — vector-effect:
+// non-scaling-stroke prevents geometry caching. Click ⚡ to bake the current
+// assignment into one merged SVG path per district (mergeArcs per district).
+// Element count drops ~100×, restoring "first load" zoom snappiness.
+// Cost: mahalle-level click/hover until restored. Click again to undo.
+function isOptimizable() {
+  if (state.active === 'il') return false;                    // il subgraph is small
+  if (state.bg && state.bg !== 'paper') return false;         // per-mahalle paint can't aggregate
+  if (state.running.size > 0) return false;                   // assignment is mutating
+  for (const meta of REGIONS) {
+    if (state.regions[meta.key]?.assignment) return true;
+  }
+  return false;
+}
+
+function bakeRegionToDistrictPaths(key) {
+  const r = state.regions[key];
+  if (!r || !r.topo || !r.assignment) return null;
+  const a = r.assignment;
+  const geoms = r.topo.objects.mahalle.geometries;
+  const k = r.k;
+  if (!k) return null;
+
+  // Bucket mahalle indices by district.
+  const groups = new Map();
+  for (let i = 0; i < geoms.length; i++) {
+    const d = a[i];
+    if (d < 0 || d >= k) continue;
+    let g = groups.get(d);
+    if (!g) { g = []; groups.set(d, g); }
+    g.push(i);
+  }
+
+  // Mirror the per-district fill logic from recolorRegion so the baked
+  // layer looks identical to the per-mahalle layer it replaces.
+  let fillFor;
+  if (state.colorMode === 'districts') {
+    if (!r._palette || r._palette.length !== k) r._palette = buildPalette(k);
+    const pal = r._palette;
+    fillFor = (d) => pal[d];
+  } else {
+    const m = new Float64Array(k), kk = new Float64Array(k);
+    for (let i = 0; i < r.N; i++) { m[a[i]] += r.muh[i]; kk[a[i]] += r.ikt[i]; }
+    const partisan = new Array(k);
+    for (let d = 0; d < k; d++) { const t = m[d] + kk[d]; partisan[d] = t > 0 ? m[d] / t : 0.5; }
+    r._partisan = partisan;
+    fillFor = (d) => partisanColor(partisan[d]);
+  }
+
+  const path = d3.geoPath(state.proj);
+  const bakedG = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+  bakedG.setAttribute('class', 'baked-region');
+  bakedG.dataset.region = key;
+  // Hint the rasterizer that exact pixel-perfect AA isn't required during
+  // pan/zoom — the borders on top are still crisp via non-scaling-stroke.
+  bakedG.setAttribute('shape-rendering', 'optimizeSpeed');
+
+  for (const [d, indices] of groups) {
+    const comp = indices.map(i => geoms[i]);
+    const merged = topojson.mergeArcs(r.topo, comp);
+    const mergedTopo = {
+      type: 'Topology', arcs: r.topo.arcs, transform: r.topo.transform,
+      objects: { d: { type: 'GeometryCollection', geometries: [merged] } },
+    };
+    const fc = topojson.feature(mergedTopo, mergedTopo.objects.d);
+    let dStr = '';
+    for (const feat of fc.features) {
+      const ds = path(feat);
+      if (ds) dStr += ds;
+    }
+    if (!dStr) continue;
+    const el = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    el.setAttribute('d', dStr);
+    el.setAttribute('fill', fillFor(d));
+    el.setAttribute('stroke', 'none');
+    el.style.cursor = 'pointer';
+    el.dataset.region = key;
+    el.dataset.district = String(d);
+    // Click a baked district to open its drawer — preserves the most common
+    // post-redistricting interaction even though per-mahalle hover is off.
+    // In national mode, `d` is the global district id (r.assignment is the
+    // _natSlice), so route to the national drawer for the correct title.
+    el.addEventListener('click', () => {
+      const cur = state.active;
+      if (cur === 'national' && state.regions.national?.assignment) openDistrictDrawer('national', d);
+      else if (cur === key && state.regions[key]?.assignment)        openDistrictDrawer(key, d);
+      else selectRegion(key);
+    });
+    bakedG.appendChild(el);
+  }
+  return bakedG;
+}
+
+function optimizeMap() {
+  if (state.optimized) return;
+  if (!isOptimizable()) return;
+  const t0 = performance.now();
+  let baked = 0;
+  for (const meta of REGIONS) {
+    const r = state.regions[meta.key];
+    if (!r?.assignment) continue;
+    const g = bakeRegionToDistrictPaths(meta.key);
+    if (!g) continue;
+    state.zoomG.appendChild(g);
+    r._bakedG = g;
+    const els = state.pathEls[meta.key];
+    if (els) for (const el of els) el.style.display = 'none';
+    baked++;
+  }
+  if (baked === 0) return;
+  // Re-append district border + labels so they paint on top of the baked
+  // fills. appendChild moves the existing nodes to the end of zoomG.
+  for (const meta of REGIONS) {
+    const r = state.regions[meta.key];
+    if (r?.borderEl && r.borderEl.parentNode === state.zoomG) {
+      state.zoomG.appendChild(r.borderEl);
+    }
+  }
+  const labels = document.getElementById('district-labels');
+  if (labels && labels.parentNode === state.zoomG) state.zoomG.appendChild(labels);
+  // Compositor hint: the zoom group is a transformable layer.
+  state.zoomG.style.willChange = 'transform';
+  state.optimized = true;
+  const btn = $('btn-optimize');
+  if (btn) {
+    btn.classList.add('active');
+    btn.title = 'Optimized — click to restore mahalle-level click/hover';
+  }
+  if (typeof updateButtons === 'function') updateButtons();
+  status(`map optimized · ${baked} region${baked === 1 ? '' : 's'} baked`, `${(performance.now() - t0).toFixed(0)}ms`);
+}
+
+function unoptimizeMap() {
+  if (!state.optimized) return;
+  for (const meta of REGIONS) {
+    const r = state.regions[meta.key];
+    if (r?._bakedG) { r._bakedG.remove(); r._bakedG = null; }
+    const els = state.pathEls[meta.key];
+    if (els) for (const el of els) {
+      if (el.style.display === 'none') el.style.display = '';
+    }
+  }
+  if (state.zoomG) state.zoomG.style.willChange = '';
+  state.optimized = false;
+  const btn = $('btn-optimize');
+  if (btn) {
+    btn.classList.remove('active');
+    btn.title = 'Optimize — flatten mahalle paths into per-district shapes for fast zoom (like the initial load). Toggle to restore mahalle-level click/hover.';
+  }
+  if (typeof updateButtons === 'function') updateButtons();
+}
+
+function toggleOptimize() {
+  if (state.optimized) unoptimizeMap();
+  else optimizeMap();
 }
 
 function processRegion(meta, tj) {
@@ -3557,11 +3726,13 @@ function initRestartCtx(key) {
 function startRun() {
   if (state.active === 'national') return;  // national has its own CTA
   if (state.running.has(state.active)) return;
+  if (state.optimized) unoptimizeMap();
   initRestartCtx(state.active);
   runRegion(state.active);
 }
 
 function startRunAll() {
+  if (state.optimized) unoptimizeMap();
   // Kick off every region's worker in parallel — they're independent.
   for (const meta of REGIONS) {
     if (state.regions[meta.key]?.status === 'loading') continue;
@@ -3576,6 +3747,7 @@ function startRunNational() {
   const r = state.regions.national;
   if (!r || !r.isNational || !state.workers.national) return;
   if (state.running.has('national')) return;
+  if (state.optimized) unoptimizeMap();
   state.active = 'national';
   selectRegion('national');
   initRestartCtx('national');
@@ -3678,6 +3850,7 @@ function startRunIl() {
   const ilCode = +$('il-select').value || 0;
   if (!ilCode) { status('Pick an il first.', 'err'); return; }
   if (state.running.has('il')) return;
+  if (state.optimized) unoptimizeMap();
   const splitOn = state.ilSplit !== 'off';
   const G = buildIlGraph(ilCode, splitOn, +$('il-split-thresh').value || 1.5);
   if (!G) { status('No mahalleler found for il ' + ilCode, 'err'); return; }
@@ -3992,6 +4165,7 @@ function startPolish() {
   const r = state.regions[key];
   if (!r || r.status !== 'done') return;
   if (state.running.has(key)) return;
+  if (state.optimized) unoptimizeMap();
   r.status = 'running';
   state.running.add(key);
   renderRegionList(); updateButtons();
@@ -4023,6 +4197,7 @@ function pauseToggle() {
 function resetRegion() {
   const r = state.regions[state.active];
   if (!r) return;
+  if (state.optimized) unoptimizeMap();
   if (state.running.has(state.active)) {
     state.workers[state.active].postMessage({ type: 'abort' });
   }
@@ -4148,6 +4323,7 @@ function redrawIlBorders() {
 }
 
 function recolorRegion(key) {
+  if (state.optimized) unoptimizeMap();
   if (key === 'national') { recolorNational(); return; }
   if (key === 'il') { recolorIl(); return; }
   const r = state.regions[key];
@@ -4194,6 +4370,9 @@ function recolorRegion(key) {
 // Fast diff-recolor: only updates the SVG paths for nodes whose district
 // changed. Called every tick. ~50 attribute writes vs 6,577 for a full recolor.
 function recolorPaths(key, diff) {
+  // Worker ticks mutate the assignment — drop the baked snapshot so the
+  // user sees the live partition. Optimize button re-enables once idle.
+  if (state.optimized) unoptimizeMap();
   // İl mode: do a full recolor — sub-graph is small and we don't have a
   // flat pathEls array indexed by local id, so per-tick diff isn't easy.
   if (key === 'il') { recolorIl(); return; }
@@ -4365,6 +4544,9 @@ function redrawDistrictBorders(key, live) {
   r.borderEl.parentNode.appendChild(r.borderEl);
 }
 function recolorAll() {
+  // Drop the optimized snapshot so changes (theme, color mode, assignment)
+  // actually become visible. User can click ⚡ again to re-bake.
+  if (state.optimized) unoptimizeMap();
   // Background overrides everything when not 'paper' — show
   // population heatmap or province (il) tint instead of the assignment.
   if (state.bg && state.bg !== 'paper') { applyBackgroundPaint(); return; }
