@@ -2843,6 +2843,7 @@ $('btn-step').onclick = () => {
   const r = state.regions[key];
   if (!r) return;
   if (state.running.has(key)) return;
+  if (typeof txStepAllowed === 'function' && !txStepAllowed()) return;
   const k = r.k || seatsFor();
   state.running.add(key);
   state.runStartTs = Date.now();
@@ -3101,6 +3102,7 @@ function loadScenario(id) {
     if (state.active !== scn.region) selectRegion(scn.region);
     else { recolorAll(); redrawDistrictBorders(scn.region); updateMetricsPanel(); }
     renderRegionList(); updateButtons();
+    if (typeof txAfterRun === 'function') txAfterRun(scn.region);
   }
   status(`Loaded "${scn.name}"`, '');
 }

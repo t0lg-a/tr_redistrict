@@ -827,5 +827,21 @@ rep("""    type: 'continue', key, hard: txHard(key),
     tol: state.tol, weights: { ...state.weights },""", """    type: 'continue', key, hard: txHard(key), k: r.k,
     tol: state.tol, weights: { ...state.weights },""", 2)
 
+
+# A loaded scenario replaces the plan: re-check it and forget any House clustering.
+rep("""    renderRegionList(); updateButtons();
+  }
+  status(`Loaded "${scn.name}"`, '');""", """    renderRegionList(); updateButtons();
+    if (typeof txAfterRun === 'function') txAfterRun(scn.region);
+  }
+  status(`Loaded "${scn.name}"`, '');""")
+# Step obeys the same chamber and House rules as the other run buttons.
+rep("""  if (!r) return;
+  if (state.running.has(key)) return;
+  const k = r.k || seatsFor();""", """  if (!r) return;
+  if (state.running.has(key)) return;
+  if (typeof txStepAllowed === 'function' && !txStepAllowed()) return;
+  const k = r.k || seatsFor();""")
+
 open(os.path.join(ROOT, 'texas', 'index.html'), 'w', encoding='utf-8').write(s)
 print('ok')

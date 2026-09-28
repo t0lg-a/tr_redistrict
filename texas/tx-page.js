@@ -183,6 +183,15 @@ function callWorker(w, msg, until) {
   });
 }
 
+// Step runs one move on the statewide worker: not for a House plan built from
+// county clusters, and not for a plan of another chamber.
+window.txStepAllowed = function () {
+  const r0 = state.regions[rkey()];
+  if (r0 && r0.assignment && r0.k !== seatsFor()) { status(`This map has ${r0.k} districts. Pick its chamber again to step it.`, '', true); return false; }
+  if (TX_DATA.legal && chamber() === 'house' && seatsFor() === 150) { status('Step is not available for the Texas House: use Run, Optimize or Polish, which keep the county line rule.', '', true); return false; }
+  return true;
+};
+
 window.txStartRun = function (mode) {
   // Continue and polish work on the plan on screen: its district count must
   // match the chamber picked now, or the wrong chamber's rules would apply.
@@ -222,19 +231,33 @@ async function runHouse(mode) {
   // Number districts cluster by cluster (clusters in library order).
   let offset = 0;
   const work = [];
-  for (const job of jobs) {
+  // The seed must fit the clustering: every job holds exactly its own seed
+  // districts (checked over every unit), and no district spans two jobs.
+  const jobOfDistrict = new Map();
+  for (let jn = 0; jn < jobs.length; jn++) {
+    const job = jobs[jn];
     const base = offset; offset += job.seats;
-    // Seed districts of this job, renumbered 0..seats-1.
     const unitOfNode = (nd) => nd.units.length ? nd.units[0] : nd.pieceOf;
-    const ids = [...new Set(job.nodes.map(nd => seed[unitOfNode(nd)]))].sort((a, b) => a - b);
-    const local = new Map(ids.map((d, i) => [d, i]));
-    if (job.seats === 1 || ids.length !== job.seats) {
-      for (const nd of job.nodes) for (const u of nd.units) assignment[u] = base + (job.seats === 1 ? 0 : local.get(seed[u]) ?? 0);
-      continue;
+    const ids = new Set();
+    for (const nd of job.nodes) {
+      for (const u of nd.units) ids.add(seed[u]);
+      if (nd.units.length > 1 && nd.units.some(u => seed[u] !== seed[nd.units[0]])) ids.add(-1);   // a whole county split by the seed
     }
+    for (const d of ids) {
+      if (jobOfDistrict.has(d) && jobOfDistrict.get(d) !== jn) ids.add(-1);
+      jobOfDistrict.set(d, jn);
+    }
+    if (ids.has(-1) || ids.size !== job.seats) {
+      r.status = 'done'; state.running.delete(key); renderRegionList(); updateButtons();
+      status(`This plan does not fit clustering ${idx + 1}; run the Texas House again to start from a lawful plan.`, '', true);
+      return;
+    }
+    const local = new Map([...ids].sort((a, b) => a - b).map((d, i) => [d, i]));
+    if (job.seats === 1) { for (const nd of job.nodes) for (const u of nd.units) assignment[u] = base; continue; }
     work.push({ job, base, init: Int32Array.from(job.nodes, nd => local.get(seed[unitOfNode(nd)])) });
   }
   const workers = getPool();
+  const failedJobs = [];
   let done = 0;
   status(`Texas House: ${jobs.length} county clusters, ${work.length} to optimize`, `clustering ${idx + 1}`);
   const runJob = async (w, item, jid) => {
@@ -250,7 +273,10 @@ async function runHouse(mode) {
       coolRate: +$('in-cooling').value || 0.9995, anneal: state.anneal, accept: state.accept,
       polish: mode === 'polish', polishFlips: +$('in-flips').value || 3, maxRetries: +$('in-retries').value || 50,
     }, ['done', 'error']);
-    const a = res.type === 'done' ? new Int32Array(res.assignment) : item.init;
+    // A job that errors or ends with any violation keeps its lawful start.
+    const ok = res.type === 'done' && res.metrics && res.metrics.viol === 0;
+    if (!ok) failedJobs.push(job.counties.slice(0, 3).map(c => state.ilNames?.get(c) || c).join(', '));
+    const a = ok ? new Int32Array(res.assignment) : item.init;
     job.nodes.forEach((nd, i) => { for (const u of nd.units) assignment[u] = item.base + a[i]; });
     done++;
     status(`Texas House: ${done} / ${work.length} multi-district clusters`, `clustering ${idx + 1}`);
@@ -266,7 +292,7 @@ async function runHouse(mode) {
   recolorRegion(key); redrawDistrictLabels();
   if (state.active === key) { state.scoreHist = []; drawScoreChart(); updateMetricsPanel(); drawLegend(); }
   renderRegionList(); updateButtons();
-  status(`Texas House plan built from clustering ${idx + 1}`, `${jobs.length} county clusters`);
+  status(`Texas House plan built from clustering ${idx + 1}`, failedJobs.length ? `kept the lawful start in: ${failedJobs.join('; ')}` : `${jobs.length} county clusters`);
   renderRules();
 }
 

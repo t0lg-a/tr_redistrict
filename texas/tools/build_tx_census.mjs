@@ -171,7 +171,9 @@ let topo = topology({ parts: { type: 'FeatureCollection', features: feats } }, 1
 const partGeoms = topo.objects.parts.geometries;
 // Longest shared border for each geometry-only feature.
 {
-  const arcLen = topo.arcs.map(a => { let x = 0, y = 0, L = 0; a.forEach(([dx, dy], j) => { if (j) L += Math.hypot(dx - x, dy - y); x = dx; y = dy; }); return L; });
+  // Arcs are delta-encoded: decode cumulatively before measuring.
+  const [sx0, sy0] = topo.transform.scale, cl = Math.cos(31 * Math.PI / 180);
+  const arcLen = topo.arcs.map(a => { let x = 0, y = 0, px = null, py = null, L = 0; for (const [dx, dy] of a) { x += dx; y += dy; if (px !== null) L += Math.hypot((x - px) * sx0 * cl, (y - py) * sy0); px = x; py = y; } return L; });
   const users = new Map();
   partGeoms.forEach((g, i) => {
     const walk = (a) => Array.isArray(a) ? a.forEach(walk) : (() => { const id = a < 0 ? ~a : a; if (!users.has(id)) users.set(id, new Set()); users.get(id).add(i); })();
@@ -179,9 +181,10 @@ const partGeoms = topo.objects.parts.geometries;
   });
   for (const i of geometryOnly) {
     const shared = new Map();
-    for (const [id, set] of users) if (set.has(i)) for (const j of set) if (j !== i && baseOf[j]) shared.set(j, (shared.get(j) || 0) + arcLen[id]);
+    // Precincts nest in counties: only a neighbour in the same county qualifies.
+    for (const [id, set] of users) if (set.has(i)) for (const j of set) if (j !== i && baseOf[j] && k20[j].slice(0, 3) === k20[i].slice(0, 3)) shared.set(j, (shared.get(j) || 0) + arcLen[id]);
     const best = [...shared].sort((a, b) => b[1] - a[1])[0];
-    if (!best) fail('orphan ' + k20[i] + ' has no neighbour');
+    if (!best) fail('orphan ' + k20[i] + ' has no same-county neighbour');
     partsOf.get(baseOf[best[0]]).push(i);
     notes.mergedPostCensus.push({ plate: k20[i], unit: baseOf[best[0]] });
     console.error(`merged post-census precinct ${k20[i]} into ${baseOf[best[0]]}`);
@@ -277,16 +280,22 @@ for (const i of multi) {
   const bbox = outlines.map(ps => { let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity; for (const rs of ps) for (const r of rs) for (const [x, y] of r) { if (x < x0) x0 = x; if (y < y0) y0 = y; if (x > x1) x1 = x; if (y > y1) y1 = y; } return [x0, y0, x1, y1]; });
   for (const i of multi) pieces[i].forEach((nb, p) => {
     if (nb.length) return;
-    const pts = outlines[i][p][0];
+    const pts = outlines[i][p][0];                   // closed ring: last point repeats the first
     const pb = [Math.min(...pts.map(q => q[0])), Math.min(...pts.map(q => q[1])), Math.max(...pts.map(q => q[0])), Math.max(...pts.map(q => q[1]))];
     for (let j = 0; j < geoms.length; j++) {
       if (j === i) continue;
       const b = bbox[j];
       if (b[0] > pb[2] + TOL || b[2] < pb[0] - TOL || b[1] > pb[3] + TOL || b[3] < pb[1] - TOL) continue;
       outlines[j].forEach((rs, q) => {
-        let on = 0;
-        for (const pt of pts) { let hit = false; for (const r of rs) { for (let s2 = 1; s2 < r.length && !hit; s2++) if (segDist(pt, r[s2 - 1], r[s2]) < TOL) hit = true; if (hit) break; } if (hit) on++; }
-        if (on < 2) return;
+        // Shared length: piece edges whose ends and midpoint all lie on j's
+        // outline. It must reach MIN_SHARED_M, like any other adjacency.
+        const onJ = (pt) => { for (const r of rs) for (let s2 = 1; s2 < r.length; s2++) if (segDist(pt, r[s2 - 1], r[s2]) < TOL) return true; return false; };
+        let sharedM = 0;
+        for (let e = 1; e < pts.length; e++) {
+          const a = pts[e - 1], b = pts[e];
+          if (onJ(a) && onJ(b) && onJ([(a[0] + b[0]) / 2, (a[1] + b[1]) / 2])) sharedM += Math.hypot((b[0] - a[0]) * cosLat, b[1] - a[1]) * 111320;
+        }
+        if (sharedM < MIN_SHARED_M) return;
         nb.push(multi.has(j) ? [j, q] : j);
         // Symmetric: unit adjacency, and the neighbour's own piece list.
         if (!adjacency[i].includes(j)) { adjacency[i].push(j); adjacency[j].push(i); }

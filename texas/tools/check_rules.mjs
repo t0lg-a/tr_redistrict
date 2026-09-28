@@ -119,5 +119,41 @@ const hostile = { cutEdges: 10, popDev: 0, partisanAdv: 100, lopsidedWins: 50, e
   const bad = await call({ type: 'continue', key: 's', k: 38, tol: 0.05, weights: hostile, iters: 10, seed: 1, hard });
   check(bad.type === 'error', 'continue with the wrong district count is refused');
 }
+// 4b. Incremental bookkeeping, move by move: drive the worker's own move
+// functions on live states (including infeasible starts) and compare the
+// maintained violation and crossing counts with a full recomputation.
+{
+  const self = { postMessage: () => {} };
+  const X = new Function('self', 'performance', wsrc + '\nreturn { regions, buildState, hardAttach, hardRecompute, recomStepInc, flipStep, mkRng };')(self, { now: () => Date.now() });
+  const lib = JSON.parse(fs.readFileSync(path.join(root, 'regions', 'house_clusters.json')));
+  const jobs = TX.houseJobs(lib.clusterings[1].clusters, ctx).filter(j => j.seats > 1 && (j.glue.length || j.cross.length)).slice(0, 4);
+  let moves = 0, worst = 0, crossBad = 0;
+  for (const [n, job] of jobs.entries()) {
+    const key = 'x' + n;
+    self.onmessage({ data: { type: 'init', key, adj: job.adj, pop: job.pop, iktidar: job.r, muhalefet: job.d, il: job.il, glue: job.glue } });
+    const R = X.regions[key]; R.totalDist = job.seats;
+    const rng = X.mkRng(17 + n);
+    // Infeasible start: random districts on a BFS order, tight cross limits.
+    const init = new Int32Array(R.N);
+    const order = [0], seen = new Uint8Array(R.N); seen[0] = 1;
+    for (let i = 0; i < order.length; i++) for (const v of R.adj[order[i]]) if (!seen[v]) { seen[v] = 1; order.push(v); }
+    order.forEach((u, i) => { init[u] = Math.min(job.seats - 1, Math.floor(i * job.seats / R.N)); });
+    const S = X.buildState(R, job.seats, init);
+    X.hardAttach(S, { lo: lib.lo, hi: lib.hi, cross: job.cross.map(([c]) => [c, 0]) });
+    S.acceptRule = 'metropolis';
+    S.score = 0; S.bestScore = Infinity;
+    for (let it = 0; it < 1500; it++) {
+      const changed = rng() < 0.5 ? X.recomStepInc(S, 0.3, hostile, 1e12, rng) : X.flipStep(S, { popDev: 1 }, rng);
+      if (!changed) continue;
+      moves++;
+      const inc = S.viol, cc = new Map(S.crossCnt);
+      X.hardRecompute(S);
+      worst = Math.max(worst, Math.abs(inc - S.viol));
+      for (const [k, v] of S.crossCnt) if ((cc.get(k) || 0) !== v) crossBad++;
+      for (const [k, v] of cc) if ((S.crossCnt.get(k) || 0) !== v) crossBad++;
+    }
+  }
+  check(moves > 500 && worst < 1e-6 && crossBad === 0, `move-by-move bookkeeping matches recomputation (${moves} accepted moves, max drift ${worst}, crossing mismatches ${crossBad})`);
+}
 console.log(failures ? `${failures} check(s) failed` : 'all checks passed');
 process.exit(failures ? 1 : 0);
