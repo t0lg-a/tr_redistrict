@@ -18,12 +18,12 @@ def rep(old, new, count=1):
 # ── head / hero
 rep('<title>Türkiye 2023 ReCom — Almanac</title>', '<title>Texas ReCom — Almanac</title>')
 rep('<div class="kicker">ReCom Redistricting · TR 2023 Milletvekili</div>',
-    '<div class="kicker">ReCom Redistricting · Texas 2024 General</div>')
+    '<div class="kicker" id="tx-kicker">ReCom Redistricting · Texas</div>')
 rep('<h1 class="hero-title">Türkiye 2023 — mahalle-level seat maps</h1>',
-    '<h1 class="hero-title">Texas — precinct-level seat maps</h1>')
+    '<h1 class="hero-title">Texas — district maps under the Texas rules</h1>')
 rep('<div class="hero-sub">Recombination on 51,358 mahalles, 7 regions, with Antimander fair-redistricting objectives.</div>',
-    '<div class="hero-sub">Recombination on 9,712 VTDs (2024 lines), 2024 presidential vote, apportioned by 2024 registered voters. <a href="../" style="color:inherit">Türkiye version</a></div>')
-rep('<div class="micro">National electorate</div>', '<div class="micro">Registered voters</div>')
+    '<div class="hero-sub"><span id="hero-sub">Loading…</span> <a href="../" style="color:inherit">Türkiye version</a></div>')
+rep('<div class="micro">National electorate</div>', '<div class="micro" id="hdr-pop-label">Population</div>')
 
 # ── apportionment panel -> chamber picker
 rep('''      <div class="panel">
@@ -48,9 +48,7 @@ rep('''      <div class="panel">
         <div class="label" style="margin-top:10px">Districts (k)</div>
         <input class="nin" type="number" id="in-k" value="38" min="2" max="600" step="1">
         <input type="hidden" id="in-vpd" value="0">
-        <div style="font-family:var(--mono);font-size:11px;color:var(--muted);margin-top:8px;line-height:1.5">
-          Population = 2024 registered voters<br>(no census counts in this dataset).
-        </div>
+        <div id="pop-note" style="font-family:var(--mono);font-size:11px;color:var(--muted);margin-top:8px;line-height:1.5"></div>
         <button class="cmd" id="btn-enacted" disabled style="margin-top:10px;width:100%" title="Load the enacted 2021-cycle plan for this chamber (PlanC2193 / PlanS2168 / PlanH2316) and score it.">Load enacted PlanC2193</button>
         <div class="hint" id="enacted-info">Scores the current map against the same metrics.</div>
       </div>
@@ -95,7 +93,7 @@ rep('<div class="progress-pct" id="progress-pct">0 / 7</div>', '<div class="prog
 rep('<div class="drawer-stat"><div class="v" id="dr-share">—</div><div class="k">Muh share</div></div>',
     '<div class="drawer-stat"><div class="v" id="dr-share">—</div><div class="k">D share</div></div>')
 rep('<div class="drawer-stat"><div class="v" id="dr-pop">—</div><div class="k">Population</div></div>',
-    '<div class="drawer-stat"><div class="v" id="dr-pop">—</div><div class="k">Reg. voters</div></div>')
+    '<div class="drawer-stat"><div class="v" id="dr-pop">—</div><div class="k" id="dr-pop-k">Population</div></div>')
 rep('<div class="drawer-stat"><div class="v" id="dr-mahs">—</div><div class="k">Mahalleler</div></div>',
     '<div class="drawer-stat"><div class="v" id="dr-mahs">—</div><div class="k">Precincts</div></div>')
 rep('<div class="drawer-label">Margin distribution (this region)</div>', '<div class="drawer-label">Margin distribution (this map)</div>')
@@ -157,8 +155,19 @@ const TR_BBOX_FEATURE = {
     [25.5, 35.7], [45.2, 35.7], [45.2, 42.4], [25.5, 42.4], [25.5, 35.7]
   ]]}
 };
-""", """const REGIONS = [
-  { key: 'texas', label: 'Texas' },
+""", """// Dataset: the 2020 Census layer (legal rules apply) by default; ?data=2024 is
+// the exploratory 2024 precinct layer balanced on registered voters.
+const TX_DATA = (() => {
+  let q = '';
+  try { q = new URLSearchParams(location.search).get('data') || ''; } catch {}
+  return q === '2024'
+    ? { key: 'texas', legal: false, popLabel: 'Reg. voters', rLabel: 'Trump (R) 2024', dLabel: 'Harris (D) 2024',
+        sub: 'Exploratory: 9,712 precincts on the 2024 lines, 2024 president, balanced on 2024 registered voters. Legal checks are off in this view.' }
+    : { key: 'census2020', legal: true, popLabel: 'Population', rLabel: 'Trump (R) 2020', dLabel: 'Biden (D) 2020',
+        sub: '2020 Census population on all 9,007 census VTDs, 2020 president; every plan is checked against the Texas and federal rules.' };
+})();
+const REGIONS = [
+  { key: TX_DATA.key, label: 'Texas' },
 ];
 
 // Lon/lat extent of the precinct layer. Longitude is scaled by cos(31°) so
@@ -237,17 +246,21 @@ function loadEnactedPlan() {
   const r = state.regions[key];
   if (!r?.features || state.running.has(key)) return;
   const ch = CHAMBERS[state.chamber];
-  const assignment = new Int32Array(r.N);
+  const M = r.pg ? r.pg.M : r.N;
+  const assignment = new Int32Array(M);
   for (let i = 0; i < r.N; i++) assignment[i] = (r.features[i].properties[ch.field] | 0) - 1;
+  for (let n = r.N; n < M; n++) assignment[n] = assignment[r.pg.unitOf(n)];
   if (assignment.some(d => d < 0 || d >= ch.k)) { status(`${ch.plan}: incomplete assignment`, '', true); return; }
   setKTarget(ch.k);
   if (state.active !== key) selectRegion(key);
   state.workers[key].postMessage({
     type: 'load', key, k: ch.k, label: ch.plan,
-    assignment: assignment.buffer, weights: { ...state.weights },
+    assignment: assignment.buffer, weights: { ...state.weights }, hard: txHard(key),
   }, [assignment.buffer]);
 }
 $('btn-enacted').onclick = loadEnactedPlan;
+// Hooks filled in by tx-page.js (loaded after this script).
+function txHard(key) { return (typeof txHardImpl === 'function') ? txHardImpl(key) : null; }
 
 // Continue ReCom from whatever assignment the worker holds (enacted plan or
 // a finished run) rather than a fresh random partition.
@@ -272,9 +285,10 @@ function startContinue() {
     coolRate: +$('in-cooling').value || 0.9995,
     accept: state.accept,
     maxRetries: +$('in-retries').value || 50,
+    hard: txHard(key),
   });
 }
-$('btn-continue').onclick = startContinue;""")
+$('btn-continue').onclick = () => { if (typeof txStartRun === 'function' && txStartRun('continue')) return; startContinue(); };""")
 
 # help tips
 rep("'in-flips': 'Number of single-mahalle flip moves", "'in-flips': 'Number of single-precinct flip moves")
@@ -359,7 +373,7 @@ rep("""  if (m.type === 'partition' || m.type === 'done') {
     }
     renderRegionList(); updateButtons(); redrawDistrictLabels();
     const mm = m.metrics;
-    $('enacted-info').textContent = `${m.label}: ${mm.muhSeats} D / ${mm.iktSeats} R · max dev ${(mm.popDev * 100).toFixed(1)}% (reg. voters) · ${mm.ilSplits} county splits`;
+    $('enacted-info').textContent = `${m.label} at VTD level (the enacted plan follows census blocks and splits VTDs, so its populations here are approximate): ${mm.muhSeats} D / ${mm.iktSeats} R · max dev ${(mm.popDev * 100).toFixed(1)}%`;
     status(`${m.label} loaded`, `score ${m.score.toFixed(0)}`);
     return;
   }
@@ -402,13 +416,13 @@ rep("  const k = +$('il-k').value || 40;", "  const k = +$('il-k').value || 4;")
 rep("""function buildTooltipHTML(regionLabel, d, stats, mahalle_n, il_code) {""",
     """function buildTooltipHTML(regionLabel, d, stats, mahalle_n, il_code, feat) {""")
 rep("""    <div class="tt-row"><span>Population</span><span class="v">${_fmtNum(Math.round(s.pop))}</span></div>""",
-    """    <div class="tt-row"><span>Reg. voters</span><span class="v">${_fmtNum(Math.round(s.pop))}</span></div>""")
+    """    <div class="tt-row"><span>${TX_DATA.popLabel}</span><span class="v">${_fmtNum(Math.round(s.pop))}</span></div>""")
 rep("""    <div class="tt-row"><span>Mahalleler</span><span class="v">${_fmtNum(s.n)}</span></div>""",
     """    <div class="tt-row"><span>Precincts</span><span class="v">${_fmtNum(s.n)}</span></div>""")
 rep("""    <div class="tt-row"><span>Muhalefet</span><span class="v tt-pos">${muhPct}%</span></div>
     <div class="tt-row"><span>Iktidar</span><span class="v tt-neg">${iktPct}%</span></div>""",
-    """    <div class="tt-row"><span>Harris (D)</span><span class="v tt-pos">${muhPct}%</span></div>
-    <div class="tt-row"><span>Trump (R)</span><span class="v tt-neg">${iktPct}%</span></div>""")
+    """    <div class="tt-row"><span>${TX_DATA.dLabel}</span><span class="v tt-pos">${muhPct}%</span></div>
+    <div class="tt-row"><span>${TX_DATA.rLabel}</span><span class="v tt-neg">${iktPct}%</span></div>""")
 rep("""  const winnerLabel = (winnerCls === 'tt-tossup') ? 'Tossup' : s.winner;""",
     """  const winnerLabel = (winnerCls === 'tt-tossup') ? 'Tossup' : (s.winner === 'Muhalefet' ? 'D' : s.winner === 'Iktidar' ? 'R' : s.winner);""")
 rep("""    <div class="tt-hdr" style="margin-bottom:0">Mahalle #${mahalle_n} · İl ${il_code}</div>""",
@@ -424,6 +438,410 @@ rep("""<span class="legend-chip"><span class="sw" style="background:var(--blue-d
 
 # exports
 s = s.replace("a.download = `tr_", "a.download = `tx_")
+
+
+# ── Worker: hard constraints for the Texas rules ───────────────────────────
+# A continuous violation V (population outside [lo, hi] in percentage points of
+# the ideal, plus county crossings over each county's limit) enters every score
+# with weight HARD_W, so a feasible plan always beats an infeasible one and no
+# accepted move can make a feasible plan infeasible. S.viol is kept exact
+# incrementally by recomStepInc and flipStep.
+rep("""// ── Maintained-state ReCom ─────────────────────────────────────────""",
+"""// ── Hard constraints (Texas rules) ───────────────────────────────────
+// Every violation costs at least HARD_W, far above any objective (the largest
+// objective terms stay well under 1e7), so a lawful plan always scores better
+// than an unlawful one and no move from a lawful plan to an unlawful one is
+// accepted, whatever the weights or temperature.
+const HARD_W = 1e9;
+// Structural rules outrank population: a run that cannot reach the population
+// band never gives up contiguity (glued VTD pieces) or the county line rule.
+const STRUCT_W = 1000;
+function hardExcess(H, p) {
+  const out = p < H.lo ? H.lo - p : p > H.hi ? p - H.hi : 0;
+  return out > 0 ? 1 + out / H.ideal * 100 : 0;
+}
+// Glue: nodes that are pieces of one indivisible unit (a census VTD whose
+// territory is in several pieces) must share a district. Each group adds
+// (districts it touches - 1) to the violation.
+function glueCount(S, g) {
+  let a = S.assignment[g[0]], n = 1;
+  if (g.length === 2) return S.assignment[g[1]] === a ? 0 : 1;
+  const seen = [a];
+  for (let i = 1; i < g.length; i++) { const d = S.assignment[g[i]]; if (!seen.includes(d)) { seen.push(d); n++; } }
+  return n - 1;
+}
+function hardAttach(S, hard) {
+  const R = S.R;
+  if (!hard && !R.glue) { S.hard = null; S.viol = 0; return; }
+  hard = hard || { lo: -Infinity, hi: Infinity };
+  const lim = {};
+  for (const [il, l] of (hard.cross || [])) lim[il] = l;
+  S.hard = { lo: hard.lo, hi: hard.hi, ideal: R.totalPop / S.k, lim: (hard.cross && hard.cross.length) ? lim : null };
+  hardRecompute(S);
+}
+function hardRecompute(S) {
+  const H = S.hard; let v = 0;
+  for (let d = 0; d < S.k; d++) v += hardExcess(H, S.pops[d]);
+  S.crossCnt = new Map();
+  if (H.lim) {
+    for (const [key, cnt] of S.ilDistCount) {
+      const il = (key / S.k) | 0, d = key - il * S.k;
+      if (H.lim[il] === undefined) continue;
+      if (cnt > 0 && cnt < S.districtNodes[d].length) S.crossCnt.set(il, (S.crossCnt.get(il) || 0) + 1);
+    }
+    for (const [il, c] of S.crossCnt) v += STRUCT_W * Math.max(0, c - H.lim[il]);
+  }
+  if (S.R.glue) for (const g of S.R.glue) v += STRUCT_W * glueCount(S, g);
+  S.viol = v;
+}
+
+// ── Maintained-state ReCom ─────────────────────────────────────────""")
+rep("""  if (weights.ilSplits) s += weights.ilSplits * S.ilSplits;
+  return s;
+}""", """  if (weights.ilSplits) s += weights.ilSplits * S.ilSplits;
+  if (S.hard) s += HARD_W * S.viol;
+  return s;
+}""")
+rep("""    ilSplits: S.ilSplits,
+  };""", """    ilSplits: S.ilSplits,
+    viol: S.hard ? S.viol : 0,
+  };""")
+# recomStepInc: violation delta before the proposed score
+rep("""  // ── Proposed score
+  let proposed = 0;""", """  // ── Hard-constraint delta (only d1, d2 change)
+  let newViol = S.viol || 0;
+  const hardCrossUpd = [];
+  if (S.hard) {
+    const H = S.hard;
+    newViol += hardExcess(H, newPop_d1) + hardExcess(H, newPop_d2) - hardExcess(H, S.pops[d1]) - hardExcess(H, S.pops[d2]);
+    if (H.lim) {
+      const o1 = list1.length, o2 = list2.length, n1 = r.nStrict, n2 = arrLen - r.nStrict;
+      const chg = new Map();
+      for (const [key, , newC] of ilCountChanges) chg.set(key, newC);
+      const seenIl = new Set();
+      for (let i = 0; i < arrLen; i++) {
+        const il = R.il[arr[i]];
+        if (seenIl.has(il)) continue;
+        seenIl.add(il);
+        const lim = H.lim[il];
+        if (lim === undefined) continue;
+        const k1 = il * S.k + d1, k2 = il * S.k + d2;
+        const c1o = S.ilDistCount.get(k1) || 0, c2o = S.ilDistCount.get(k2) || 0;
+        const c1n = chg.has(k1) ? chg.get(k1) : c1o, c2n = chg.has(k2) ? chg.get(k2) : c2o;
+        const fo = (c1o > 0 && c1o < o1 ? 1 : 0) + (c2o > 0 && c2o < o2 ? 1 : 0);
+        const fn = (c1n > 0 && c1n < n1 ? 1 : 0) + (c2n > 0 && c2n < n2 ? 1 : 0);
+        if (fo === fn) continue;
+        const oldCross = S.crossCnt.get(il) || 0, newCross = oldCross + fn - fo;
+        newViol += STRUCT_W * (Math.max(0, newCross - lim) - Math.max(0, oldCross - lim));
+        hardCrossUpd.push(il, newCross);
+      }
+    }
+    if (R.glue) {
+      const doneG = new Set();
+      for (let ci = 0; ci < nChanged; ci++) {
+        const gi = R.glueOf[changedNodes[ci]];
+        if (gi < 0 || doneG.has(gi)) continue;
+        doneG.add(gi);
+        const g = R.glue[gi];
+        const before = glueCount(S, g);
+        const seen = [];
+        for (const n of g) { const d = isChanged[n] ? (inStrict[n] ? d1 : d2) : S.assignment[n]; if (!seen.includes(d)) seen.push(d); }
+        newViol += STRUCT_W * ((seen.length - 1) - before);
+      }
+    }
+  }
+
+  // ── Proposed score
+  let proposed = 0;""")
+rep("""  if (weights.ilSplits) proposed += weights.ilSplits * newIlSplits;
+""", """  if (weights.ilSplits) proposed += weights.ilSplits * newIlSplits;
+  if (S.hard) proposed += HARD_W * newViol;
+""")
+rep("""  S.ilSplits = newIlSplits;
+  S.cutEdges = newCutEdges;""", """  S.ilSplits = newIlSplits;
+  S.cutEdges = newCutEdges;
+  if (S.hard) {
+    S.viol = newViol;
+    for (let i = 0; i < hardCrossUpd.length; i += 2) S.crossCnt.set(hardCrossUpd[i], hardCrossUpd[i + 1]);
+  }""")
+# flipStep: violation delta
+rep("""    const newIlSplits = S.ilSplits + dIlSplits;
+
+    // Proposed score
+    let newScore = 0;""", """    const newIlSplits = S.ilSplits + dIlSplits;
+
+    // Hard-constraint delta: pops of dFrom/dTo, and crossing status of every
+    // limited county present in either district (sizes change by one).
+    let newViol = S.viol || 0;
+    const hardCrossUpd = [];
+    if (S.hard) {
+      const H = S.hard;
+      newViol += hardExcess(H, newPopFrom) + hardExcess(H, newPopTo) - hardExcess(H, S.pops[dFrom]) - hardExcess(H, S.pops[dTo]);
+      if (H.lim) {
+        const toList0 = S.districtNodes[dTo];
+        const oF = fromList.length, oT = toList0.length, nF = oF - 1, nT = oT + 1;
+        const seenIl = new Set();
+        const visit = (lst) => {
+          for (let q = 0; q < lst.length; q++) {
+            const ilq = R.il[lst[q]];
+            if (seenIl.has(ilq)) continue;
+            seenIl.add(ilq);
+            const lim = H.lim[ilq];
+            if (lim === undefined) continue;
+            const cFo = S.ilDistCount.get(ilq * S.k + dFrom) || 0, cTo = S.ilDistCount.get(ilq * S.k + dTo) || 0;
+            const cFn = ilq === il ? cFo - 1 : cFo, cTn = ilq === il ? cTo + 1 : cTo;
+            const fo = (cFo > 0 && cFo < oF ? 1 : 0) + (cTo > 0 && cTo < oT ? 1 : 0);
+            const fn = (cFn > 0 && cFn < nF ? 1 : 0) + (cTn > 0 && cTn < nT ? 1 : 0);
+            if (fo === fn) continue;
+            const oldCross = S.crossCnt.get(ilq) || 0, newCross = oldCross + fn - fo;
+            newViol += STRUCT_W * (Math.max(0, newCross - lim) - Math.max(0, oldCross - lim));
+            hardCrossUpd.push(ilq, newCross);
+          }
+        };
+        visit(fromList); visit(toList0);
+      }
+      if (R.glue && R.glueOf[node] >= 0) {
+        const g = R.glue[R.glueOf[node]];
+        const before = glueCount(S, g);
+        const seen = [];
+        for (const n of g) { const d = n === node ? dTo : S.assignment[n]; if (!seen.includes(d)) seen.push(d); }
+        newViol += STRUCT_W * ((seen.length - 1) - before);
+      }
+    }
+
+    // Proposed score
+    let newScore = 0;""")
+rep("""    if (weights.ilSplits) newScore += weights.ilSplits * newIlSplits;
+""", """    if (weights.ilSplits) newScore += weights.ilSplits * newIlSplits;
+    if (S.hard) newScore += HARD_W * newViol;
+""")
+rep("""    S.ilSplits = newIlSplits;
+
+    // cutFlat updates""", """    S.ilSplits = newIlSplits;
+    if (S.hard) {
+      S.viol = newViol;
+      for (let q = 0; q < hardCrossUpd.length; q += 2) S.crossCnt.set(hardCrossUpd[q], hardCrossUpd[q + 1]);
+    }
+
+    // cutFlat updates""")
+# attach hard constraints on load / run / continue
+rep("""    const S = buildState(R, m.k, new Int32Array(m.assignment));
+    S.score = scoreFromState(S, m.weights);""", """    const S = buildState(R, m.k, new Int32Array(m.assignment));
+    hardAttach(S, m.hard);
+    S.score = scoreFromState(S, m.weights);""")
+rep("""      S = savedState;
+      // Re-evaluate score under current weights (in case they changed)
+      S.score = scoreFromState(S, weights);""", """      if (m.k && m.k !== savedState.k) {
+        self.postMessage({ type: 'error', key: m.key, msg: `This plan has ${savedState.k} districts, not ${m.k}.` });
+        return;
+      }
+      // Continue from the best plan found (the one on screen), not from the
+      // chain's last state, under the current weights and constraints.
+      S = buildState(R, savedState.k, savedState.bestAssignment.slice());
+      hardAttach(S, m.hard);
+      S.score = scoreFromState(S, weights);
+      S.bestScore = S.score;
+      S.bestAssignment.set(S.assignment);""")
+rep("""      S = buildState(R, m.k, assignment);
+      S.score = scoreFromState(S, weights);""", """      S = buildState(R, m.k, assignment);
+      hardAttach(S, m.hard);
+      S.score = scoreFromState(S, weights);""")
+
+
+# ── Hooks for tx-page.js: hard constraints, run overrides, validation ──────
+rep("""    type: 'run', key, k,
+""", """    type: 'run', key, k, hard: txHard(key),
+""")
+rep("""    type: r.assignment ? 'continue' : 'run', key, k,
+""", """    type: r.assignment ? 'continue' : 'run', key, k, hard: txHard(key),
+""")
+rep("""function startPolish() {
+  const key = state.active;""", """function startPolish() {
+  if (typeof txStartRun === 'function' && txStartRun('polish')) return;
+  const key = state.active;""")
+rep("""    type: 'continue', key,
+    tol: state.tol, weights: { ...state.weights },""", """    type: 'continue', key, hard: txHard(key),
+    tol: state.tol, weights: { ...state.weights },""", 2)
+rep("""function startRun() {
+  if (state.active === 'national') return;  // national has its own CTA""", """function startRun() {
+  if (typeof txStartRun === 'function' && txStartRun('run')) return;
+  if (state.active === 'national') return;  // national has its own CTA""")
+rep("""      onRunFinished(m.key, !!m.aborted);""", """      onRunFinished(m.key, !!m.aborted);
+      if (typeof txAfterRun === 'function') txAfterRun(m.key);""")
+rep("""    status(`${m.label} loaded`, `score ${m.score.toFixed(0)}`);
+    return;""", """    status(`${m.label} loaded`, `score ${m.score.toFixed(0)}`);
+    if (typeof txAfterRun === 'function') txAfterRun(m.key, m.label);
+    return;""")
+# Legal checks panel under the status line.
+rep("""      <div class="status">
+        <span class="lhs" id="status-l">Idle.</span>
+        <span id="status-r">—</span>
+      </div>
+    </div>
+  </div>
+""", """      <div class="status">
+        <span class="lhs" id="status-l">Idle.</span>
+        <span id="status-r">—</span>
+      </div>
+
+      <div class="panel rules-panel" id="rules-panel">
+        <h3>Legal checks</h3>
+        <div class="hint" id="rules-summary" style="margin-top:0">Run or load a plan to check it.</div>
+        <div id="rules-list"></div>
+      </div>
+    </div>
+  </div>
+""")
+rep("""<script src="https://cdn.jsdelivr.net/npm/topojson-client@3"></script>""", """<script src="https://cdn.jsdelivr.net/npm/topojson-client@3"></script>
+<script src="tx-rules.js"></script>""")
+rep("""bootRegions();
+</script>
+</body>""", """bootRegions();
+</script>
+<script src="tx-page.js"></script>
+</body>""")
+# Finer tolerance for congressional runs (down to 0.1%).
+rep("""  tolLabel.textContent = `±${(t * 100).toFixed(1)}%`;""", """  tolLabel.textContent = `±${(t * 100).toFixed(t < 0.01 ? 2 : 1)}%`;""")
+rep("""  const t = Math.max(0.01, Math.min(0.30, x * 0.30));
+  setTolUI(Math.round(t * 200) / 200);""", """  const t = Math.max(0.001, Math.min(0.30, x * 0.30));
+  setTolUI(t < 0.01 ? Math.round(t * 1000) / 1000 : Math.round(t * 200) / 200);""")
+
+
+rep("""      il: new Int32Array(m.il),
+      N: m.pop.length,
+      totalPop: m.pop.reduce((a, b) => a + b, 0),
+    };""", """      il: new Int32Array(m.il),
+      N: m.pop.length,
+      totalPop: m.pop.reduce((a, b) => a + b, 0),
+    };
+    if (m.glue && m.glue.length) {
+      const R = regions[m.key];
+      R.glue = m.glue.map(g => Int32Array.from(g));
+      R.glueOf = new Int32Array(R.N).fill(-1);
+      R.glue.forEach((g, gi) => { for (const n of g) R.glueOf[n] = gi; });
+    }""")
+
+# Adjacency shipped with the census layer (full-resolution geometry, shared
+# boundary of positive length) replaces arc sharing on the simplified layer.
+rep("""  const adj = buildAdjacency(tj);
+  const adjGeo = adj.map(s => new Set(s));""", """  const adj = tj.meta && tj.meta.adjacency ? tj.meta.adjacency.map(a => Int32Array.from(a)) : buildAdjacency(tj);
+  const adjGeo = adj.map(s => new Set(s));""")
+
+
+# Worker graph with one node per piece of multipart census VTDs (glued to
+# their unit), so every district stays contiguous at the level of territory.
+rep("""  state.workers[meta.key].postMessage({
+    type: 'init', key: meta.key,
+    adj: adj.map(a => Array.from(a)),
+    pop: Array.from(pop),
+    iktidar: Array.from(ikt),
+    muhalefet: Array.from(muh),
+    il: Array.from(il),
+  });
+""", """  let pg = null;
+  let wInit = { adj: adj.map(a => Array.from(a)), pop: Array.from(pop), iktidar: Array.from(ikt), muhalefet: Array.from(muh), il: Array.from(il) };
+  if (tj.meta && tj.meta.pieces && Object.keys(tj.meta.pieces).length) {
+    pg = TXRules.pieceGraph(N, tj.meta.adjacency, tj.meta.pieces);
+    const pad = (a, f) => a.concat(pg.extraOf.map(f));
+    wInit = { adj: pg.adj, pop: pad(Array.from(pop), () => 0), iktidar: pad(Array.from(ikt), () => 0),
+      muhalefet: pad(Array.from(muh), () => 0), il: pad(Array.from(il), u => il[u]), glue: pg.glue };
+  }
+  state.workers[meta.key].postMessage({ type: 'init', key: meta.key, ...wInit });
+""")
+rep("""    topo: tj, features: fc.features, pop, ikt, muh, il, N, totalPop, adj, adjGeo,""",
+    """    topo: tj, features: fc.features, pop, ikt, muh, il, N, totalPop, adj, adjGeo, pg,""")
+rep("""    for (let i = 0; i < diff.length; i += 2) {
+      const n = diff[i], d = diff[i + 1];
+      els[n].setAttribute('fill', pal[d]);
+    }""", """    for (let i = 0; i < diff.length; i += 2) {
+      const n = diff[i], d = diff[i + 1];
+      if (n < els.length) els[n].setAttribute('fill', pal[d]);   // extra piece nodes have no path
+    }""")
+
+
+# Best-plan bookkeeping. Flip moves in Polish are judged on population alone,
+# so the best plan is tracked by polishStep under the run's own weights, and
+# 'done' rebuilds the state of the best plan so its metrics (and any later
+# 'continue') describe the plan that is returned and shown.
+rep("""    S.score = newScore;
+    if (S.score < S.bestScore) {
+      S.bestScore = S.score;
+      S.bestAssignment.set(S.assignment);
+    }
+    return [node];""", """    S.score = newScore;
+    return [node];""")
+rep("""  S.score = scoreFromState(S, weights);
+  const recomChanged = recomStepInc(S, tol, weights, 0, rng);""", """  S.score = scoreFromState(S, weights);
+  if (S.score < S.bestScore) { S.bestScore = S.score; S.bestAssignment.set(S.assignment); }
+  const recomChanged = recomStepInc(S, tol, weights, 0, rng);""")
+rep("""// State persists between 'run' and 'continue' so the user can polish""", """// State of the best plan of a finished run: metrics, 'continue' and polish
+// all start from it.
+function bestState(S, R, hard, weights) {
+  const B = buildState(R, S.k, S.bestAssignment.slice());
+  hardAttach(B, hard);
+  B.score = scoreFromState(B, weights);
+  B.bestScore = B.score;
+  B.bestAssignment.set(B.assignment);
+  return B;
+}
+
+// State persists between 'run' and 'continue' so the user can polish""")
+rep("""      if (aborted) {
+        savedState = S; savedKey = m.key;
+        const buf = S.bestAssignment.slice().buffer;
+        self.postMessage({ type: 'done', key: m.key, aborted: true,
+          assignment: buf, score: S.bestScore,
+          metrics: metricsFromState(S) }, [buf]);
+        return;
+      }""", """      if (aborted) {
+        const B = bestState(S, R, m.hard, weights);
+        savedState = B; savedKey = m.key;
+        const buf = B.assignment.slice().buffer;
+        self.postMessage({ type: 'done', key: m.key, aborted: true,
+          assignment: buf, score: B.score,
+          metrics: metricsFromState(B) }, [buf]);
+        return;
+      }""")
+rep("""      else {
+        savedState = S; savedKey = m.key;
+        const buf = S.bestAssignment.slice().buffer;
+        self.postMessage({
+          type: 'done', key: m.key,
+          assignment: buf,
+          score: S.bestScore, iter,
+          metrics: metricsFromState(S),
+        }, [buf]);
+      }""", """      else {
+        const B = bestState(S, R, m.hard, weights);
+        savedState = B; savedKey = m.key;
+        const buf = B.assignment.slice().buffer;
+        self.postMessage({
+          type: 'done', key: m.key,
+          assignment: buf,
+          score: B.score, iter,
+          metrics: metricsFromState(B),
+        }, [buf]);
+      }""")
+# Continue and polish carry the plan's district count.
+rep("""    type: 'continue', key, hard: txHard(key),
+    tol: state.tol, weights: { ...state.weights },""", """    type: 'continue', key, hard: txHard(key), k: r.k,
+    tol: state.tol, weights: { ...state.weights },""", 2)
+
+
+# A loaded scenario replaces the plan: re-check it and forget any House clustering.
+rep("""    renderRegionList(); updateButtons();
+  }
+  status(`Loaded "${scn.name}"`, '');""", """    renderRegionList(); updateButtons();
+    if (typeof txAfterRun === 'function') txAfterRun(scn.region);
+  }
+  status(`Loaded "${scn.name}"`, '');""")
+# Step obeys the same chamber and House rules as the other run buttons.
+rep("""  if (!r) return;
+  if (state.running.has(key)) return;
+  const k = r.k || seatsFor();""", """  if (!r) return;
+  if (state.running.has(key)) return;
+  if (typeof txStepAllowed === 'function' && !txStepAllowed()) return;
+  const k = r.k || seatsFor();""")
 
 open(os.path.join(ROOT, 'texas', 'index.html'), 'w', encoding='utf-8').write(s)
 print('ok')

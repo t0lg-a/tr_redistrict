@@ -9,6 +9,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Eczar:wght@400;500;600;700;800&family=Source+Serif+4:ital,wght@0,400;0,500;0,600;0,700;1,400&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
 <script src="https://cdn.jsdelivr.net/npm/topojson-client@3"></script>
+<script src="tx-rules.js"></script>
 <style>
   :root {
     --display: 'Eczar', Georgia, serif;
@@ -550,13 +551,13 @@
 
   <div class="title-row">
     <div class="title-left">
-      <div class="kicker">ReCom Redistricting · Texas 2024 General</div>
-      <h1 class="hero-title">Texas — precinct-level seat maps</h1>
-      <div class="hero-sub">Recombination on 9,712 VTDs (2024 lines), 2024 presidential vote, apportioned by 2024 registered voters. <a href="../" style="color:inherit">Türkiye version</a></div>
+      <div class="kicker" id="tx-kicker">ReCom Redistricting · Texas</div>
+      <h1 class="hero-title">Texas — district maps under the Texas rules</h1>
+      <div class="hero-sub"><span id="hero-sub">Loading…</span> <a href="../" style="color:inherit">Türkiye version</a></div>
     </div>
     <div class="title-right">
       <div>
-        <div class="micro">Registered voters</div>
+        <div class="micro" id="hdr-pop-label">Population</div>
         <div class="hdr-val" id="hdr-electorate">—</div>
       </div>
       <div class="vrule"></div>
@@ -585,9 +586,7 @@
         <div class="label" style="margin-top:10px">Districts (k)</div>
         <input class="nin" type="number" id="in-k" value="38" min="2" max="600" step="1">
         <input type="hidden" id="in-vpd" value="0">
-        <div style="font-family:var(--mono);font-size:11px;color:var(--muted);margin-top:8px;line-height:1.5">
-          Population = 2024 registered voters<br>(no census counts in this dataset).
-        </div>
+        <div id="pop-note" style="font-family:var(--mono);font-size:11px;color:var(--muted);margin-top:8px;line-height:1.5"></div>
         <button class="cmd" id="btn-enacted" disabled style="margin-top:10px;width:100%" title="Load the enacted 2021-cycle plan for this chamber (PlanC2193 / PlanS2168 / PlanH2316) and score it.">Load enacted PlanC2193</button>
         <div class="hint" id="enacted-info">Scores the current map against the same metrics.</div>
       </div>
@@ -683,7 +682,7 @@
             <div class="drawer-stat"><div class="v" id="dr-share">—</div><div class="k">D share</div></div>
             <div class="drawer-stat"><div class="v" id="dr-margin">—</div><div class="k">Margin</div></div>
             <div class="drawer-stat"><div class="v" id="dr-winner">—</div><div class="k">Winner</div></div>
-            <div class="drawer-stat"><div class="v" id="dr-pop">—</div><div class="k">Reg. voters</div></div>
+            <div class="drawer-stat"><div class="v" id="dr-pop">—</div><div class="k" id="dr-pop-k">Population</div></div>
             <div class="drawer-stat"><div class="v" id="dr-popdev">—</div><div class="k">Pop. dev</div></div>
             <div class="drawer-stat"><div class="v" id="dr-mahs">—</div><div class="k">Precincts</div></div>
           </div>
@@ -714,6 +713,12 @@
       <div class="status">
         <span class="lhs" id="status-l">Idle.</span>
         <span id="status-r">—</span>
+      </div>
+
+      <div class="panel rules-panel" id="rules-panel">
+        <h3>Legal checks</h3>
+        <div class="hint" id="rules-summary" style="margin-top:0">Run or load a plan to check it.</div>
+        <div id="rules-list"></div>
       </div>
     </div>
   </div>
@@ -1268,8 +1273,8 @@ function bipart(R, nodeArr, k, baseId, assignment, tol, rng, statusCb, totalK, d
       // fallback is found), so allocation cost is small.
       const savedHead = new Int32Array(R.N);
       const savedNext = new Int32Array(R.N);
-      savedHead.set(r.childHead);
-      savedNext.set(r.childNext);
+      savedHead.set(r.childHead.subarray(0, R.N));
+      savedNext.set(r.childNext.subarray(0, R.N));
       bestFallback = {
         node: r.fallbackNode, err: r.fallbackErr,
         childHead: savedHead, childNext: savedNext,
@@ -1312,6 +1317,54 @@ function initialPartition(R, k, tol, rng, statusCb) {
   const doneRef = { count: 0 };
   bipart(R, allNodes, k, 0, assignment, tol, rng, statusCb, k, doneRef);
   return assignment;
+}
+
+// ── Hard constraints (Texas rules) ───────────────────────────────────
+// Every violation costs at least HARD_W, far above any objective (the largest
+// objective terms stay well under 1e7), so a lawful plan always scores better
+// than an unlawful one and no move from a lawful plan to an unlawful one is
+// accepted, whatever the weights or temperature.
+const HARD_W = 1e9;
+// Structural rules outrank population: a run that cannot reach the population
+// band never gives up contiguity (glued VTD pieces) or the county line rule.
+const STRUCT_W = 1000;
+function hardExcess(H, p) {
+  const out = p < H.lo ? H.lo - p : p > H.hi ? p - H.hi : 0;
+  return out > 0 ? 1 + out / H.ideal * 100 : 0;
+}
+// Glue: nodes that are pieces of one indivisible unit (a census VTD whose
+// territory is in several pieces) must share a district. Each group adds
+// (districts it touches - 1) to the violation.
+function glueCount(S, g) {
+  let a = S.assignment[g[0]], n = 1;
+  if (g.length === 2) return S.assignment[g[1]] === a ? 0 : 1;
+  const seen = [a];
+  for (let i = 1; i < g.length; i++) { const d = S.assignment[g[i]]; if (!seen.includes(d)) { seen.push(d); n++; } }
+  return n - 1;
+}
+function hardAttach(S, hard) {
+  const R = S.R;
+  if (!hard && !R.glue) { S.hard = null; S.viol = 0; return; }
+  hard = hard || { lo: -Infinity, hi: Infinity };
+  const lim = {};
+  for (const [il, l] of (hard.cross || [])) lim[il] = l;
+  S.hard = { lo: hard.lo, hi: hard.hi, ideal: R.totalPop / S.k, lim: (hard.cross && hard.cross.length) ? lim : null };
+  hardRecompute(S);
+}
+function hardRecompute(S) {
+  const H = S.hard; let v = 0;
+  for (let d = 0; d < S.k; d++) v += hardExcess(H, S.pops[d]);
+  S.crossCnt = new Map();
+  if (H.lim) {
+    for (const [key, cnt] of S.ilDistCount) {
+      const il = (key / S.k) | 0, d = key - il * S.k;
+      if (H.lim[il] === undefined) continue;
+      if (cnt > 0 && cnt < S.districtNodes[d].length) S.crossCnt.set(il, (S.crossCnt.get(il) || 0) + 1);
+    }
+    for (const [il, c] of S.crossCnt) v += STRUCT_W * Math.max(0, c - H.lim[il]);
+  }
+  if (S.R.glue) for (const g of S.R.glue) v += STRUCT_W * glueCount(S, g);
+  S.viol = v;
 }
 
 // ── Maintained-state ReCom ─────────────────────────────────────────
@@ -1449,6 +1502,7 @@ function scoreFromState(S, weights) {
     s += weights.targetSeats * diff * diff;
   }
   if (weights.ilSplits) s += weights.ilSplits * S.ilSplits;
+  if (S.hard) s += HARD_W * S.viol;
   return s;
 }
 
@@ -1482,6 +1536,7 @@ function metricsFromState(S) {
     competitiveness: marginSum / k,
     muhSeats: mWin, iktSeats: kWin,
     ilSplits: S.ilSplits,
+    viol: S.hard ? S.viol : 0,
   };
 }
 
@@ -1620,6 +1675,49 @@ function recomStepInc(S, tol, weights, T, rng) {
     newIlSplits = S.ilSplits + dIs;
   }
 
+  // ── Hard-constraint delta (only d1, d2 change)
+  let newViol = S.viol || 0;
+  const hardCrossUpd = [];
+  if (S.hard) {
+    const H = S.hard;
+    newViol += hardExcess(H, newPop_d1) + hardExcess(H, newPop_d2) - hardExcess(H, S.pops[d1]) - hardExcess(H, S.pops[d2]);
+    if (H.lim) {
+      const o1 = list1.length, o2 = list2.length, n1 = r.nStrict, n2 = arrLen - r.nStrict;
+      const chg = new Map();
+      for (const [key, , newC] of ilCountChanges) chg.set(key, newC);
+      const seenIl = new Set();
+      for (let i = 0; i < arrLen; i++) {
+        const il = R.il[arr[i]];
+        if (seenIl.has(il)) continue;
+        seenIl.add(il);
+        const lim = H.lim[il];
+        if (lim === undefined) continue;
+        const k1 = il * S.k + d1, k2 = il * S.k + d2;
+        const c1o = S.ilDistCount.get(k1) || 0, c2o = S.ilDistCount.get(k2) || 0;
+        const c1n = chg.has(k1) ? chg.get(k1) : c1o, c2n = chg.has(k2) ? chg.get(k2) : c2o;
+        const fo = (c1o > 0 && c1o < o1 ? 1 : 0) + (c2o > 0 && c2o < o2 ? 1 : 0);
+        const fn = (c1n > 0 && c1n < n1 ? 1 : 0) + (c2n > 0 && c2n < n2 ? 1 : 0);
+        if (fo === fn) continue;
+        const oldCross = S.crossCnt.get(il) || 0, newCross = oldCross + fn - fo;
+        newViol += STRUCT_W * (Math.max(0, newCross - lim) - Math.max(0, oldCross - lim));
+        hardCrossUpd.push(il, newCross);
+      }
+    }
+    if (R.glue) {
+      const doneG = new Set();
+      for (let ci = 0; ci < nChanged; ci++) {
+        const gi = R.glueOf[changedNodes[ci]];
+        if (gi < 0 || doneG.has(gi)) continue;
+        doneG.add(gi);
+        const g = R.glue[gi];
+        const before = glueCount(S, g);
+        const seen = [];
+        for (const n of g) { const d = isChanged[n] ? (inStrict[n] ? d1 : d2) : S.assignment[n]; if (!seen.includes(d)) seen.push(d); }
+        newViol += STRUCT_W * ((seen.length - 1) - before);
+      }
+    }
+  }
+
   // ── Proposed score
   let proposed = 0;
   if (weights.cutEdges) proposed += weights.cutEdges * newCutEdges;
@@ -1699,6 +1797,7 @@ function recomStepInc(S, tol, weights, T, rng) {
     proposed += weights.targetSeats * diff * diff;
   }
   if (weights.ilSplits) proposed += weights.ilSplits * newIlSplits;
+  if (S.hard) proposed += HARD_W * newViol;
 
   // ── Accept / reject
   const dE = proposed - S.score;
@@ -1748,6 +1847,10 @@ function recomStepInc(S, tol, weights, T, rng) {
   }
   S.ilSplits = newIlSplits;
   S.cutEdges = newCutEdges;
+  if (S.hard) {
+    S.viol = newViol;
+    for (let i = 0; i < hardCrossUpd.length; i += 2) S.crossCnt.set(hardCrossUpd[i], hardCrossUpd[i + 1]);
+  }
   // Update cutFlat: remove losers (swap-pop), append gainers
   for (let i = 0; i < cutLose.length; i++) {
     const eid = cutLose[i];
@@ -1895,6 +1998,45 @@ function flipStep(S, weights, rng) {
     if (oldCTo === 0 && newCTo > 0) dIlSplits++;
     const newIlSplits = S.ilSplits + dIlSplits;
 
+    // Hard-constraint delta: pops of dFrom/dTo, and crossing status of every
+    // limited county present in either district (sizes change by one).
+    let newViol = S.viol || 0;
+    const hardCrossUpd = [];
+    if (S.hard) {
+      const H = S.hard;
+      newViol += hardExcess(H, newPopFrom) + hardExcess(H, newPopTo) - hardExcess(H, S.pops[dFrom]) - hardExcess(H, S.pops[dTo]);
+      if (H.lim) {
+        const toList0 = S.districtNodes[dTo];
+        const oF = fromList.length, oT = toList0.length, nF = oF - 1, nT = oT + 1;
+        const seenIl = new Set();
+        const visit = (lst) => {
+          for (let q = 0; q < lst.length; q++) {
+            const ilq = R.il[lst[q]];
+            if (seenIl.has(ilq)) continue;
+            seenIl.add(ilq);
+            const lim = H.lim[ilq];
+            if (lim === undefined) continue;
+            const cFo = S.ilDistCount.get(ilq * S.k + dFrom) || 0, cTo = S.ilDistCount.get(ilq * S.k + dTo) || 0;
+            const cFn = ilq === il ? cFo - 1 : cFo, cTn = ilq === il ? cTo + 1 : cTo;
+            const fo = (cFo > 0 && cFo < oF ? 1 : 0) + (cTo > 0 && cTo < oT ? 1 : 0);
+            const fn = (cFn > 0 && cFn < nF ? 1 : 0) + (cTn > 0 && cTn < nT ? 1 : 0);
+            if (fo === fn) continue;
+            const oldCross = S.crossCnt.get(ilq) || 0, newCross = oldCross + fn - fo;
+            newViol += STRUCT_W * (Math.max(0, newCross - lim) - Math.max(0, oldCross - lim));
+            hardCrossUpd.push(ilq, newCross);
+          }
+        };
+        visit(fromList); visit(toList0);
+      }
+      if (R.glue && R.glueOf[node] >= 0) {
+        const g = R.glue[R.glueOf[node]];
+        const before = glueCount(S, g);
+        const seen = [];
+        for (const n of g) { const d = n === node ? dTo : S.assignment[n]; if (!seen.includes(d)) seen.push(d); }
+        newViol += STRUCT_W * ((seen.length - 1) - before);
+      }
+    }
+
     // Proposed score
     let newScore = 0;
     if (weights.cutEdges) newScore += weights.cutEdges * newCutEdges;
@@ -1970,6 +2112,7 @@ function flipStep(S, weights, rng) {
       newScore += weights.targetSeats * diff * diff;
     }
     if (weights.ilSplits) newScore += weights.ilSplits * newIlSplits;
+    if (S.hard) newScore += HARD_W * newViol;
 
     if (newScore >= S.score) continue;  // greedy reject
 
@@ -2002,6 +2145,10 @@ function flipStep(S, weights, rng) {
       S.nDistrictsForIl.set(il, (S.nDistrictsForIl.get(il) || 0) + 1);
     }
     S.ilSplits = newIlSplits;
+    if (S.hard) {
+      S.viol = newViol;
+      for (let q = 0; q < hardCrossUpd.length; q += 2) S.crossCnt.set(hardCrossUpd[q], hardCrossUpd[q + 1]);
+    }
 
     // cutFlat updates
     for (let i = 0; i < cutLose.length; i++) {
@@ -2022,10 +2169,6 @@ function flipStep(S, weights, rng) {
     }
     S.cutEdges = newCutEdges;
     S.score = newScore;
-    if (S.score < S.bestScore) {
-      S.bestScore = S.score;
-      S.bestAssignment.set(S.assignment);
-    }
     return [node];
   }
   return null;
@@ -2044,9 +2187,21 @@ function polishStep(S, tol, weights, rng, scratchScore, polishFlips) {
     if (f) for (const n of f) flipped.push(n);
   }
   S.score = scoreFromState(S, weights);
+  if (S.score < S.bestScore) { S.bestScore = S.score; S.bestAssignment.set(S.assignment); }
   const recomChanged = recomStepInc(S, tol, weights, 0, rng);
   if (recomChanged) for (const n of recomChanged) flipped.push(n);
   return flipped.length ? flipped : null;
+}
+
+// State of the best plan of a finished run: metrics, 'continue' and polish
+// all start from it.
+function bestState(S, R, hard, weights) {
+  const B = buildState(R, S.k, S.bestAssignment.slice());
+  hardAttach(B, hard);
+  B.score = scoreFromState(B, weights);
+  B.bestScore = B.score;
+  B.bestAssignment.set(B.assignment);
+  return B;
 }
 
 // State persists between 'run' and 'continue' so the user can polish
@@ -2068,6 +2223,12 @@ self.onmessage = (e) => {
       N: m.pop.length,
       totalPop: m.pop.reduce((a, b) => a + b, 0),
     };
+    if (m.glue && m.glue.length) {
+      const R = regions[m.key];
+      R.glue = m.glue.map(g => Int32Array.from(g));
+      R.glueOf = new Int32Array(R.N).fill(-1);
+      R.glue.forEach((g, gi) => { for (const n of g) R.glueOf[n] = gi; });
+    }
     self.postMessage({ type: 'inited', key: m.key });
     return;
   }
@@ -2076,6 +2237,7 @@ self.onmessage = (e) => {
     if (!R) { self.postMessage({ type: 'error', key: m.key, msg: 'region not initialized' }); return; }
     R.totalDist = m.k;
     const S = buildState(R, m.k, new Int32Array(m.assignment));
+    hardAttach(S, m.hard);
     S.score = scoreFromState(S, m.weights);
     S.bestScore = S.score;
     S.bestAssignment.set(S.assignment);
@@ -2108,9 +2270,17 @@ self.onmessage = (e) => {
         self.postMessage({ type: 'error', key: m.key, msg: 'No state to continue from. Run first.' });
         return;
       }
-      S = savedState;
-      // Re-evaluate score under current weights (in case they changed)
+      if (m.k && m.k !== savedState.k) {
+        self.postMessage({ type: 'error', key: m.key, msg: `This plan has ${savedState.k} districts, not ${m.k}.` });
+        return;
+      }
+      // Continue from the best plan found (the one on screen), not from the
+      // chain's last state, under the current weights and constraints.
+      S = buildState(R, savedState.k, savedState.bestAssignment.slice());
+      hardAttach(S, m.hard);
       S.score = scoreFromState(S, weights);
+      S.bestScore = S.score;
+      S.bestAssignment.set(S.assignment);
       // Don't reset bestScore — keep the best across the whole session
     } else {
       // Fresh run: seed via recursive bipartition
@@ -2127,6 +2297,7 @@ self.onmessage = (e) => {
       }
       if (aborted) { self.postMessage({ type: 'done', key: m.key, aborted: true }); return; }
       S = buildState(R, m.k, assignment);
+      hardAttach(S, m.hard);
       S.score = scoreFromState(S, weights);
       S.bestScore = S.score;
       S.bestAssignment.set(S.assignment);
@@ -2166,11 +2337,12 @@ self.onmessage = (e) => {
 
     const tick = () => {
       if (aborted) {
-        savedState = S; savedKey = m.key;
-        const buf = S.bestAssignment.slice().buffer;
+        const B = bestState(S, R, m.hard, weights);
+        savedState = B; savedKey = m.key;
+        const buf = B.assignment.slice().buffer;
         self.postMessage({ type: 'done', key: m.key, aborted: true,
-          assignment: buf, score: S.bestScore,
-          metrics: metricsFromState(S) }, [buf]);
+          assignment: buf, score: B.score,
+          metrics: metricsFromState(B) }, [buf]);
         return;
       }
       if (paused) { setTimeout(tick, 100); return; }
@@ -2211,13 +2383,14 @@ self.onmessage = (e) => {
       }
       if (iter < totalIters) setTimeout(tick, throttleMs);
       else {
-        savedState = S; savedKey = m.key;
-        const buf = S.bestAssignment.slice().buffer;
+        const B = bestState(S, R, m.hard, weights);
+        savedState = B; savedKey = m.key;
+        const buf = B.assignment.slice().buffer;
         self.postMessage({
           type: 'done', key: m.key,
           assignment: buf,
-          score: S.bestScore, iter,
-          metrics: metricsFromState(S),
+          score: B.score, iter,
+          metrics: metricsFromState(B),
         }, [buf]);
       }
     };
@@ -2232,8 +2405,19 @@ self.onmessage = (e) => {
 <script>
 'use strict';
 
+// Dataset: the 2020 Census layer (legal rules apply) by default; ?data=2024 is
+// the exploratory 2024 precinct layer balanced on registered voters.
+const TX_DATA = (() => {
+  let q = '';
+  try { q = new URLSearchParams(location.search).get('data') || ''; } catch {}
+  return q === '2024'
+    ? { key: 'texas', legal: false, popLabel: 'Reg. voters', rLabel: 'Trump (R) 2024', dLabel: 'Harris (D) 2024',
+        sub: 'Exploratory: 9,712 precincts on the 2024 lines, 2024 president, balanced on 2024 registered voters. Legal checks are off in this view.' }
+    : { key: 'census2020', legal: true, popLabel: 'Population', rLabel: 'Trump (R) 2020', dLabel: 'Biden (D) 2020',
+        sub: '2020 Census population on all 9,007 census VTDs, 2020 president; every plan is checked against the Texas and federal rules.' };
+})();
 const REGIONS = [
-  { key: 'texas', label: 'Texas' },
+  { key: TX_DATA.key, label: 'Texas' },
 ];
 
 // Lon/lat extent of the precinct layer. Longitude is scaled by cos(31°) so
@@ -2417,17 +2601,21 @@ function loadEnactedPlan() {
   const r = state.regions[key];
   if (!r?.features || state.running.has(key)) return;
   const ch = CHAMBERS[state.chamber];
-  const assignment = new Int32Array(r.N);
+  const M = r.pg ? r.pg.M : r.N;
+  const assignment = new Int32Array(M);
   for (let i = 0; i < r.N; i++) assignment[i] = (r.features[i].properties[ch.field] | 0) - 1;
+  for (let n = r.N; n < M; n++) assignment[n] = assignment[r.pg.unitOf(n)];
   if (assignment.some(d => d < 0 || d >= ch.k)) { status(`${ch.plan}: incomplete assignment`, '', true); return; }
   setKTarget(ch.k);
   if (state.active !== key) selectRegion(key);
   state.workers[key].postMessage({
     type: 'load', key, k: ch.k, label: ch.plan,
-    assignment: assignment.buffer, weights: { ...state.weights },
+    assignment: assignment.buffer, weights: { ...state.weights }, hard: txHard(key),
   }, [assignment.buffer]);
 }
 $('btn-enacted').onclick = loadEnactedPlan;
+// Hooks filled in by tx-page.js (loaded after this script).
+function txHard(key) { return (typeof txHardImpl === 'function') ? txHardImpl(key) : null; }
 
 // Continue ReCom from whatever assignment the worker holds (enacted plan or
 // a finished run) rather than a fresh random partition.
@@ -2441,7 +2629,7 @@ function startContinue() {
   state._plateau = { bestSeen: Infinity, lastImproveIter: 0 };
   renderRegionList(); updateButtons();
   state.workers[key].postMessage({
-    type: 'continue', key,
+    type: 'continue', key, hard: txHard(key), k: r.k,
     tol: state.tol, weights: { ...state.weights },
     iters: +$('in-iters').value || 2000,
     seed: getRunSeed(key, r.k || 1),
@@ -2452,9 +2640,10 @@ function startContinue() {
     coolRate: +$('in-cooling').value || 0.9995,
     accept: state.accept,
     maxRetries: +$('in-retries').value || 50,
+    hard: txHard(key),
   });
 }
-$('btn-continue').onclick = startContinue;
+$('btn-continue').onclick = () => { if (typeof txStartRun === 'function' && txStartRun('continue')) return; startContinue(); };
 
 const tolTrack = $('tol-track');
 const tolFill  = $('tol-fill');
@@ -2465,15 +2654,15 @@ function setTolUI(t) {
   const pct = t / 0.30;
   tolFill.style.width = (pct * 100) + '%';
   tolThumb.style.left = (pct * 100) + '%';
-  tolLabel.textContent = `±${(t * 100).toFixed(1)}%`;
+  tolLabel.textContent = `±${(t * 100).toFixed(t < 0.01 ? 2 : 1)}%`;
 }
 setTolUI(0.10);
 let tolDrag = false;
 const handleTol = (e) => {
   const r = tolTrack.getBoundingClientRect();
   const x = ((e.touches ? e.touches[0].clientX : e.clientX) - r.left) / r.width;
-  const t = Math.max(0.01, Math.min(0.30, x * 0.30));
-  setTolUI(Math.round(t * 200) / 200);
+  const t = Math.max(0.001, Math.min(0.30, x * 0.30));
+  setTolUI(t < 0.01 ? Math.round(t * 1000) / 1000 : Math.round(t * 200) / 200);
 };
 tolTrack.addEventListener('mousedown', (e) => { tolDrag = true; handleTol(e); });
 window.addEventListener('mousemove', (e) => { if (tolDrag) handleTol(e); });
@@ -2654,12 +2843,13 @@ $('btn-step').onclick = () => {
   const r = state.regions[key];
   if (!r) return;
   if (state.running.has(key)) return;
+  if (typeof txStepAllowed === 'function' && !txStepAllowed()) return;
   const k = r.k || seatsFor();
   state.running.add(key);
   state.runStartTs = Date.now();
   renderRegionList(); updateButtons();
   state.workers[key].postMessage({
-    type: r.assignment ? 'continue' : 'run', key, k,
+    type: r.assignment ? 'continue' : 'run', key, k, hard: txHard(key),
     tol: state.tol, weights: { ...state.weights },
     iters: 1,
     seed: getRunSeed(key, k),
@@ -2912,6 +3102,7 @@ function loadScenario(id) {
     if (state.active !== scn.region) selectRegion(scn.region);
     else { recolorAll(); redrawDistrictBorders(scn.region); updateMetricsPanel(); }
     renderRegionList(); updateButtons();
+    if (typeof txAfterRun === 'function') txAfterRun(scn.region);
   }
   status(`Loaded "${scn.name}"`, '');
 }
@@ -3307,21 +3498,22 @@ function processRegion(meta, tj) {
   // `adjGeo` for rendering — the border drawer must NOT see bridges, or
   // mergeArcs walks across them and produces straight-line strokes that
   // span unrelated parts of the map.
-  const adj = buildAdjacency(tj);
+  const adj = tj.meta && tj.meta.adjacency ? tj.meta.adjacency.map(a => Int32Array.from(a)) : buildAdjacency(tj);
   const adjGeo = adj.map(s => new Set(s));
   bridgeIslands(adj, fc.features, N);
 
-  state.workers[meta.key].postMessage({
-    type: 'init', key: meta.key,
-    adj: adj.map(a => Array.from(a)),
-    pop: Array.from(pop),
-    iktidar: Array.from(ikt),
-    muhalefet: Array.from(muh),
-    il: Array.from(il),
-  });
+  let pg = null;
+  let wInit = { adj: adj.map(a => Array.from(a)), pop: Array.from(pop), iktidar: Array.from(ikt), muhalefet: Array.from(muh), il: Array.from(il) };
+  if (tj.meta && tj.meta.pieces && Object.keys(tj.meta.pieces).length) {
+    pg = TXRules.pieceGraph(N, tj.meta.adjacency, tj.meta.pieces);
+    const pad = (a, f) => a.concat(pg.extraOf.map(f));
+    wInit = { adj: pg.adj, pop: pad(Array.from(pop), () => 0), iktidar: pad(Array.from(ikt), () => 0),
+      muhalefet: pad(Array.from(muh), () => 0), il: pad(Array.from(il), u => il[u]), glue: pg.glue };
+  }
+  state.workers[meta.key].postMessage({ type: 'init', key: meta.key, ...wInit });
 
   state.regions[meta.key] = {
-    topo: tj, features: fc.features, pop, ikt, muh, il, N, totalPop, adj, adjGeo,
+    topo: tj, features: fc.features, pop, ikt, muh, il, N, totalPop, adj, adjGeo, pg,
     status: 'idle', assignment: null, bestScore: Infinity, scoreHist: [],
     iter: 0, k: 0, metrics: null, label: meta.label,
     borderEl,
@@ -3561,8 +3753,9 @@ function onWorkerMsg(e) {
     }
     renderRegionList(); updateButtons(); redrawDistrictLabels();
     const mm = m.metrics;
-    $('enacted-info').textContent = `${m.label}: ${mm.muhSeats} D / ${mm.iktSeats} R · max dev ${(mm.popDev * 100).toFixed(1)}% (reg. voters) · ${mm.ilSplits} county splits`;
+    $('enacted-info').textContent = `${m.label} at VTD level (the enacted plan follows census blocks and splits VTDs, so its populations here are approximate): ${mm.muhSeats} D / ${mm.iktSeats} R · max dev ${(mm.popDev * 100).toFixed(1)}%`;
     status(`${m.label} loaded`, `score ${m.score.toFixed(0)}`);
+    if (typeof txAfterRun === 'function') txAfterRun(m.key, m.label);
     return;
   }
 
@@ -3605,6 +3798,7 @@ function onWorkerMsg(e) {
       redrawDistrictLabels();
       if (m.key === 'il') { redrawIlDistrictBorders(); renderIlDistList(); }
       onRunFinished(m.key, !!m.aborted);
+      if (typeof txAfterRun === 'function') txAfterRun(m.key);
     }
     return;
   }
@@ -3675,6 +3869,7 @@ function initRestartCtx(key) {
 }
 
 function startRun() {
+  if (typeof txStartRun === 'function' && txStartRun('run')) return;
   if (state.active === 'national') return;  // national has its own CTA
   if (state.running.has(state.active)) return;
   initRestartCtx(state.active);
@@ -4082,7 +4277,7 @@ function runRegion(key) {
   if (key === state.active) state.scoreHist = [];
   renderRegionList(); updateButtons();
   state.workers[key].postMessage({
-    type: 'run', key, k,
+    type: 'run', key, k, hard: txHard(key),
     tol: state.tol, weights: { ...state.weights },
     iters: +$('in-iters').value || 2000,
     seed: getRunSeed(key, k),
@@ -4101,6 +4296,7 @@ function runRegion(key) {
 // with 3-6 mahalles each because the merged-tree pop sums are too coarse to find
 // a balanced cut — flips move one mahalle at a time across the boundary instead.
 function startPolish() {
+  if (typeof txStartRun === 'function' && txStartRun('polish')) return;
   const key = state.active;
   const r = state.regions[key];
   if (!r || r.status !== 'done') return;
@@ -4109,7 +4305,7 @@ function startPolish() {
   state.running.add(key);
   renderRegionList(); updateButtons();
   state.workers[key].postMessage({
-    type: 'continue', key,
+    type: 'continue', key, hard: txHard(key), k: r.k,
     tol: state.tol, weights: { ...state.weights },
     iters: +$('in-iters').value || 2000,
     seed: getRunSeed(key, r.k || 1),
@@ -4319,7 +4515,7 @@ function recolorPaths(key, diff) {
     const pal = r._palette;
     for (let i = 0; i < diff.length; i += 2) {
       const n = diff[i], d = diff[i + 1];
-      els[n].setAttribute('fill', pal[d]);
+      if (n < els.length) els[n].setAttribute('fill', pal[d]);   // extra piece nodes have no path
     }
   } else {
     const k = r.k;
@@ -4805,12 +5001,12 @@ function buildTooltipHTML(regionLabel, d, stats, mahalle_n, il_code, feat) {
   const iktPct = (s.ikt / Math.max(1, s.muh + s.ikt) * 100).toFixed(1);
   return `
     <div class="tt-hdr">${regionLabel} · District ${d + 1}</div>
-    <div class="tt-row"><span>Reg. voters</span><span class="v">${_fmtNum(Math.round(s.pop))}</span></div>
+    <div class="tt-row"><span>${TX_DATA.popLabel}</span><span class="v">${_fmtNum(Math.round(s.pop))}</span></div>
     <div class="tt-row"><span>Pop dev</span><span class="v">${_fmtPct(s.popDev, 2)}</span></div>
     <div class="tt-row"><span>Precincts</span><span class="v">${_fmtNum(s.n)}</span></div>
     <hr/>
-    <div class="tt-row"><span>Harris (D)</span><span class="v tt-pos">${muhPct}%</span></div>
-    <div class="tt-row"><span>Trump (R)</span><span class="v tt-neg">${iktPct}%</span></div>
+    <div class="tt-row"><span>${TX_DATA.dLabel}</span><span class="v tt-pos">${muhPct}%</span></div>
+    <div class="tt-row"><span>${TX_DATA.rLabel}</span><span class="v tt-neg">${iktPct}%</span></div>
     <div class="tt-row"><span>Margin</span><span class="v ${winnerCls}">${(s.margin * 100).toFixed(1)} pts ${winnerLabel}</span></div>
     <hr/>
     <div class="tt-hdr" style="margin-bottom:0">${feat ? `VTD ${feat.MAH_NAME} · ${feat.IL_NAME} Co. · ${_fmtNum(feat.POP)} reg. · R ${feat.IKTIDAR} / D ${feat.MUHALEFET}` : `Precinct #${mahalle_n}`}</div>
@@ -5155,5 +5351,6 @@ status('Booting…', '');
 window.addEventListener('resize', () => { drawScoreChart(); });
 bootRegions();
 </script>
+<script src="tx-page.js"></script>
 </body>
 </html>
