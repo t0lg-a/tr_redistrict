@@ -34,6 +34,7 @@ houseCtl.innerHTML = `
   <select class="nin" id="house-cl" style="width:100%;height:32px;padding:0 8px"><option value="random">Random lawful clustering</option></select>
   <div class="hint" id="house-cl-info">Each clustering keeps every county whole except where the Texas Constitution allows a cut.</div>`;
 $('enacted-info').after(houseCtl);
+if (!TX_DATA.legal) houseCtl.innerHTML = `<div class="hint" style="margin-top:0">The Texas House can only be drawn under its rules (the county line rule counts 2020 Census population), which this 2024 view does not have. <a href="./" style="color:inherit">Open the Texas House with its rules</a>.</div>`;
 
 // CSV export next to the other exports.
 const csvBtn = document.createElement('button');
@@ -76,10 +77,24 @@ function onChamber() {
   const ch = chamber();
   $('enacted-info').textContent = 'Scores the enacted plan with the same checks as generated maps.';
   setTolUI(ch === 'congress' ? 0.005 : 0.05);
-  houseCtl.style.display = (ch === 'house' && TX_DATA.legal) ? '' : 'none';
+  houseCtl.style.display = ch === 'house' ? '' : 'none';
   if (ch === 'house' && TX_DATA.legal) loadHouseLib();
+  lockK();
   renderRules();
 }
+// Seat counts are fixed by law: 150 House, 31 Senate, 38 U.S. House. On the
+// census data the district count cannot be edited, so every run of a chamber
+// is held to that chamber's rules.
+function lockK() {
+  const inK = $('in-k');
+  if (TX_DATA.legal || chamber() === 'house') {
+    inK.readOnly = true;
+    inK.title = 'Fixed by law for this chamber.';
+    const want = { house: 150, senate: 31, congress: 38 }[chamber()];
+    if (seatsFor() !== want) setKTarget(want);
+  } else { inK.readOnly = false; inK.title = ''; }
+}
+lockK();
 document.querySelectorAll('[data-chamber]').forEach(b => b.addEventListener('click', onChamber));
 setTolUI(0.005);
 
@@ -166,7 +181,7 @@ function loadHouseLib(std) {
   }
   return houseLibPs[std].then(lib => { if (std === houseStd()) { houseLib = lib; fillClusterings(lib); } return lib; });
 }
-$('house-std').addEventListener('change', () => { loadHouseLib(); renderRules(); });
+if (TX_DATA.legal) $('house-std').addEventListener('change', () => { loadHouseLib(); renderRules(); });
 const decodeSeed = (s) => { const a = new Int32Array(s.length / 2); for (let i = 0; i < a.length; i++) a[i] = parseInt(s.substr(i * 2, 2), 36); return a; };
 
 let pool = null;
@@ -188,7 +203,7 @@ function callWorker(w, msg, until) {
 window.txStepAllowed = function () {
   const r0 = state.regions[rkey()];
   if (r0 && r0.assignment && r0.k !== seatsFor()) { status(`This map has ${r0.k} districts. Pick its chamber again to step it.`, '', true); return false; }
-  if (TX_DATA.legal && chamber() === 'house' && seatsFor() === 150) { status('Step is not available for the Texas House: use Run, Optimize or Polish, which keep the county line rule.', '', true); return false; }
+  if (chamber() === 'house') { status('Step is not available for the Texas House: use Run, Optimize or Polish, which keep the county line rule.', '', true); return false; }
   return true;
 };
 
@@ -200,7 +215,10 @@ window.txStartRun = function (mode) {
     status(`This map has ${r0.k} districts. Pick its chamber again to continue or polish it, or run a new plan.`, '', true);
     return true;
   }
-  if (!TX_DATA.legal || chamber() !== 'house' || state.active !== rkey() || seatsFor() !== 150) return false;
+  if (chamber() !== 'house' || state.active !== rkey()) return false;
+  // The Texas House is always drawn under its rules.
+  if (!TX_DATA.legal) { status('The Texas House is only drawn under its rules, on 2020 Census population: open the census view (without ?data=2024).', '', true); return true; }
+  lockK();
   const r = state.regions[rkey()];
   if (!r || !r.features || state.running.has(rkey())) return true;
   if ((mode === 'polish' || mode === 'continue') && r.houseIdx == null) {
