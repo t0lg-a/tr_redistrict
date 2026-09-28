@@ -17,6 +17,8 @@ Status: compiled September 28, 2026, from a research pass with adversarial revie
 
 The tool does not certify that any plan is lawful. It checks only the rules that can be computed from population, counties and geography. It cannot compute Voting Rights Act compliance, intent or racial predominance, and it never claims them.
 
+> **Texas House standard in the tool (update).** The county line rule is kept in full and comes before population: every House plan keeps every county whole, with districts from 185,421 to 204,851 people (range under 10%). The ±5% library (184,589 to 204,018), which needs one small-county split, has been removed; where this document describes it or a choice between two standards, only the whole-county standard now applies, and `regions/house_clusters.json` holds the 11 whole-county clusterings.
+
 ## How to read this document
 
 Categories:
@@ -636,4 +638,4 @@ Data
 
 - 2020 VTD population, VAP and 2020 presidential vote: https://github.com/alarm-redist/census-2020 (`census-vest-2020/tx_2020_vtd.csv`)
 - 2020 VTD geometry (TLC layer): https://github.com/t0lg-a/test_tx04 (`precincts_2020`)
-- Repository files: `texas/tools/build_tx_census.mjs`, `texas/regions/tx_census2020.topo.json`, `texas/regions/house_clusters.json`, `texas/regions/house_clusters_strict.json`
+- Repository files: `texas/tools/build_tx_census.mjs`, `texas/regions/tx_census2020.topo.json`, `texas/regions/house_clusters.json`

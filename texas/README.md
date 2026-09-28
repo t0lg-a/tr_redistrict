@@ -18,7 +18,7 @@ view (below).
 
 | chamber | seats | enforced while drawing | checked after every run |
 | --- | --- | --- | --- |
-| Texas House | 150 | county line rule (Tex. Const. art. III, sec. 26) through county clusters; every district within ±5% (184,589 to 204,018); contiguity | seats, census totals, contiguity, ±5% band, range under 10%, all five county line rule tests |
+| Texas House | 150 | county line rule (Tex. Const. art. III, sec. 26) in full, every county whole; districts 185,421 to 204,851 (range under 10%); contiguity | seats, census totals, contiguity, band, range under 10%, all five county line rule tests |
 | Texas Senate | 31 | every district within ±5%, so the overall range is under 10%; contiguity (art. III, sec. 25) | seats, census totals, contiguity, range under 10% (at most 94,017 people) |
 | U.S. House | 38 | tolerance you set (default ±0.5%), then population polishing; contiguity | seats, census totals, contiguity, equal population (a range of at most 1 person) |
 
@@ -33,24 +33,29 @@ by a tool and is not claimed.
 
 ### Texas House: the county line rule
 
-Counties fall into four kinds at ±5%: small (kept whole and grouped with
-neighbours), one district by itself (Ellis), self-contained (Harris 24 or 25,
-Dallas 13 or 14, Tarrant 11, Bexar 10, Williamson 3, Bell 2, Brazoria 2: no
-district crosses their line) and surplus (17 counties: floor(pop/ideal)
-districts inside and one district crossing the line with whole neighbours).
+The county line rule comes first; population only has to stay within the
+lawful range (under 10% overall). Every Texas House plan keeps every county
+whole: no small county is ever split, the counties that fit whole districts
+(Harris 24 or 25, Dallas 14, Tarrant 11, Bexar 10, Williamson 3, Brazoria 2,
+Ellis 1) keep them all inside, and each of the 18 surplus counties (Travis,
+Collin, Denton, Hidalgo, El Paso, Fort Bend, Montgomery, Cameron, Bell and 9
+others) keeps
+floor(pop/ideal) districts inside and is crossed by exactly one district joined
+with whole neighbouring counties.
 
-`regions/house_clusters.json` holds lawful county clusterings found by an exact
-solver (`tools/house_clusters.py`, OR-Tools CP-SAT), each with a complete lawful
-seed plan (`tools/house_seed_plans.mjs`). A House run picks a clustering, starts
-every cluster from its seed and optimises each cluster in a worker.
+Districts run from 185,421 to 204,851 people (−4.57% to +5.43%, an overall range
+of at most 19,430, which is 9.9998% and so under 10%). The Legislature's usual
+±5% band cannot keep every county whole: an exact solver proves that at ±5%
+Kaufman County (145,310) has no whole partner (Van Zandt gives 204,851, 833 over),
+which is why the enacted PlanH2316 splits Henderson. This tool never makes that
+split.
 
-The solver proves that **no plan can keep every small county whole at ±5%**:
-Kaufman County (145,310) cannot be completed with whole neighbours (Van Zandt,
-the smallest, gives 204,851, which is 833 over the band) and no surplus county
-can reach it. So one small county must be split, as PlanH2316 does with
-Henderson; every clustering here splits exactly one (Kaufman, Henderson, Hunt or
-Rockwall) into exactly two districts. The ±5% band is the Legislature's practice,
-not a court rule; see RULES.md for the alternative reading.
+`regions/house_clusters.json` holds 11 lawful county clusterings found by an
+exact solver (`tools/house_clusters.py`, OR-Tools CP-SAT, run with
+`HOUSE_LO=185421 HOUSE_HI=204851`), each with a complete lawful seed plan
+(`tools/house_seed_plans.mjs`). A House run picks a clustering, starts every
+cluster from its seed and optimises each cluster in a worker; no move can break
+the county line rule.
 
 ### U.S. House: what whole VTDs cannot do
 
@@ -113,7 +118,7 @@ npm i topojson-server topojson-simplify topojson-client
 node texas/tools/build_tx_census.mjs ../test_tx04 tx_2020_vtd.csv texas/regions/tx_census2020.topo.json
 python3 texas/tools/make_texas_page.py
 python3 -m venv venv && venv/bin/pip install ortools
-venv/bin/python texas/tools/house_clusters.py counties.json clusters.json 16 240
+HOUSE_LO=185421 HOUSE_HI=204851 venv/bin/python texas/tools/house_clusters.py counties.json clusters.json 12 240
 node texas/tools/house_seed_plans.mjs texas/regions/tx_census2020.topo.json clusters.json texas/regions/house_clusters.json
 ```
 
