@@ -1320,8 +1320,18 @@ function initialPartition(R, k, tol, rng, statusCb) {
 }
 
 // ── Hard constraints (Texas rules) ───────────────────────────────────
-const HARD_W = 1e6;
-function hardExcess(H, p) { return (p < H.lo ? H.lo - p : p > H.hi ? p - H.hi : 0) / H.ideal * 100; }
+// Every violation costs at least HARD_W, far above any objective (the largest
+// objective terms stay well under 1e7), so a lawful plan always scores better
+// than an unlawful one and no move from a lawful plan to an unlawful one is
+// accepted, whatever the weights or temperature.
+const HARD_W = 1e9;
+// Structural rules outrank population: a run that cannot reach the population
+// band never gives up contiguity (glued VTD pieces) or the county line rule.
+const STRUCT_W = 1000;
+function hardExcess(H, p) {
+  const out = p < H.lo ? H.lo - p : p > H.hi ? p - H.hi : 0;
+  return out > 0 ? 1 + out / H.ideal * 100 : 0;
+}
 // Glue: nodes that are pieces of one indivisible unit (a census VTD whose
 // territory is in several pieces) must share a district. Each group adds
 // (districts it touches - 1) to the violation.
@@ -1351,9 +1361,9 @@ function hardRecompute(S) {
       if (H.lim[il] === undefined) continue;
       if (cnt > 0 && cnt < S.districtNodes[d].length) S.crossCnt.set(il, (S.crossCnt.get(il) || 0) + 1);
     }
-    for (const [il, c] of S.crossCnt) v += Math.max(0, c - H.lim[il]);
+    for (const [il, c] of S.crossCnt) v += STRUCT_W * Math.max(0, c - H.lim[il]);
   }
-  if (S.R.glue) for (const g of S.R.glue) v += glueCount(S, g);
+  if (S.R.glue) for (const g of S.R.glue) v += STRUCT_W * glueCount(S, g);
   S.viol = v;
 }
 
@@ -1689,7 +1699,7 @@ function recomStepInc(S, tol, weights, T, rng) {
         const fn = (c1n > 0 && c1n < n1 ? 1 : 0) + (c2n > 0 && c2n < n2 ? 1 : 0);
         if (fo === fn) continue;
         const oldCross = S.crossCnt.get(il) || 0, newCross = oldCross + fn - fo;
-        newViol += Math.max(0, newCross - lim) - Math.max(0, oldCross - lim);
+        newViol += STRUCT_W * (Math.max(0, newCross - lim) - Math.max(0, oldCross - lim));
         hardCrossUpd.push(il, newCross);
       }
     }
@@ -1703,7 +1713,7 @@ function recomStepInc(S, tol, weights, T, rng) {
         const before = glueCount(S, g);
         const seen = [];
         for (const n of g) { const d = isChanged[n] ? (inStrict[n] ? d1 : d2) : S.assignment[n]; if (!seen.includes(d)) seen.push(d); }
-        newViol += (seen.length - 1) - before;
+        newViol += STRUCT_W * ((seen.length - 1) - before);
       }
     }
   }
@@ -2012,7 +2022,7 @@ function flipStep(S, weights, rng) {
             const fn = (cFn > 0 && cFn < nF ? 1 : 0) + (cTn > 0 && cTn < nT ? 1 : 0);
             if (fo === fn) continue;
             const oldCross = S.crossCnt.get(ilq) || 0, newCross = oldCross + fn - fo;
-            newViol += Math.max(0, newCross - lim) - Math.max(0, oldCross - lim);
+            newViol += STRUCT_W * (Math.max(0, newCross - lim) - Math.max(0, oldCross - lim));
             hardCrossUpd.push(ilq, newCross);
           }
         };
@@ -2023,7 +2033,7 @@ function flipStep(S, weights, rng) {
         const before = glueCount(S, g);
         const seen = [];
         for (const n of g) { const d = n === node ? dTo : S.assignment[n]; if (!seen.includes(d)) seen.push(d); }
-        newViol += (seen.length - 1) - before;
+        newViol += STRUCT_W * ((seen.length - 1) - before);
       }
     }
 
@@ -2159,10 +2169,6 @@ function flipStep(S, weights, rng) {
     }
     S.cutEdges = newCutEdges;
     S.score = newScore;
-    if (S.score < S.bestScore) {
-      S.bestScore = S.score;
-      S.bestAssignment.set(S.assignment);
-    }
     return [node];
   }
   return null;
@@ -2181,9 +2187,21 @@ function polishStep(S, tol, weights, rng, scratchScore, polishFlips) {
     if (f) for (const n of f) flipped.push(n);
   }
   S.score = scoreFromState(S, weights);
+  if (S.score < S.bestScore) { S.bestScore = S.score; S.bestAssignment.set(S.assignment); }
   const recomChanged = recomStepInc(S, tol, weights, 0, rng);
   if (recomChanged) for (const n of recomChanged) flipped.push(n);
   return flipped.length ? flipped : null;
+}
+
+// State of the best plan of a finished run: metrics, 'continue' and polish
+// all start from it.
+function bestState(S, R, hard, weights) {
+  const B = buildState(R, S.k, S.bestAssignment.slice());
+  hardAttach(B, hard);
+  B.score = scoreFromState(B, weights);
+  B.bestScore = B.score;
+  B.bestAssignment.set(B.assignment);
+  return B;
 }
 
 // State persists between 'run' and 'continue' so the user can polish
@@ -2252,9 +2270,14 @@ self.onmessage = (e) => {
         self.postMessage({ type: 'error', key: m.key, msg: 'No state to continue from. Run first.' });
         return;
       }
-      S = savedState;
+      if (m.k && m.k !== savedState.k) {
+        self.postMessage({ type: 'error', key: m.key, msg: `This plan has ${savedState.k} districts, not ${m.k}.` });
+        return;
+      }
+      // Continue from the best plan found (the one on screen), not from the
+      // chain's last state, under the current weights and constraints.
+      S = buildState(R, savedState.k, savedState.bestAssignment.slice());
       hardAttach(S, m.hard);
-      // Re-evaluate score under current weights (in case they changed)
       S.score = scoreFromState(S, weights);
       S.bestScore = S.score;
       S.bestAssignment.set(S.assignment);
@@ -2314,11 +2337,12 @@ self.onmessage = (e) => {
 
     const tick = () => {
       if (aborted) {
-        savedState = S; savedKey = m.key;
-        const buf = S.bestAssignment.slice().buffer;
+        const B = bestState(S, R, m.hard, weights);
+        savedState = B; savedKey = m.key;
+        const buf = B.assignment.slice().buffer;
         self.postMessage({ type: 'done', key: m.key, aborted: true,
-          assignment: buf, score: S.bestScore,
-          metrics: metricsFromState(S) }, [buf]);
+          assignment: buf, score: B.score,
+          metrics: metricsFromState(B) }, [buf]);
         return;
       }
       if (paused) { setTimeout(tick, 100); return; }
@@ -2359,13 +2383,14 @@ self.onmessage = (e) => {
       }
       if (iter < totalIters) setTimeout(tick, throttleMs);
       else {
-        savedState = S; savedKey = m.key;
-        const buf = S.bestAssignment.slice().buffer;
+        const B = bestState(S, R, m.hard, weights);
+        savedState = B; savedKey = m.key;
+        const buf = B.assignment.slice().buffer;
         self.postMessage({
           type: 'done', key: m.key,
           assignment: buf,
-          score: S.bestScore, iter,
-          metrics: metricsFromState(S),
+          score: B.score, iter,
+          metrics: metricsFromState(B),
         }, [buf]);
       }
     };
@@ -2604,7 +2629,7 @@ function startContinue() {
   state._plateau = { bestSeen: Infinity, lastImproveIter: 0 };
   renderRegionList(); updateButtons();
   state.workers[key].postMessage({
-    type: 'continue', key, hard: txHard(key),
+    type: 'continue', key, hard: txHard(key), k: r.k,
     tol: state.tol, weights: { ...state.weights },
     iters: +$('in-iters').value || 2000,
     seed: getRunSeed(key, r.k || 1),
@@ -4278,7 +4303,7 @@ function startPolish() {
   state.running.add(key);
   renderRegionList(); updateButtons();
   state.workers[key].postMessage({
-    type: 'continue', key, hard: txHard(key),
+    type: 'continue', key, hard: txHard(key), k: r.k,
     tol: state.tol, weights: { ...state.weights },
     iters: +$('in-iters').value || 2000,
     seed: getRunSeed(key, r.k || 1),

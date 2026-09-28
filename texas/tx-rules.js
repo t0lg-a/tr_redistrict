@@ -465,21 +465,20 @@ TX.pieceGraph = function (N, adj, pieces) {
   }
   const M = N + extraOf.length;
   const out = Array.from({ length: M }, () => new Set());
-  // Node(s) of unit v that touch unit u.
-  const touching = (v, u) => {
-    const ids = nodesOf.get(v);
-    if (!ids) return [v];
-    const r = [];
-    pieces[v].forEach((nb, p) => { if (nb.includes(u)) r.push(ids[p]); });
-    return r;
-  };
+  const link = (a, b) => { if (a !== b) { out[a].add(b); out[b].add(a); } };
   for (let u = 0; u < N; u++) {
     const ids = nodesOf.get(u);
-    if (!ids) { for (const v of adj[u]) for (const w of touching(v, u)) { out[u].add(w); out[w].add(u); } continue; }
+    if (!ids) {
+      // A single-piece unit touches a multipart neighbour where that
+      // neighbour's piece lists name it.
+      for (const v of adj[u]) { if (!nodesOf.has(v)) link(u, v); }
+      continue;
+    }
     pieces[u].forEach((nb, p) => {
       const a = ids[p];
-      for (const v of nb) for (const w of touching(v, u)) { out[a].add(w); out[w].add(a); }
-      if (!nb.length) for (const b of ids) if (b !== a) { out[a].add(b); out[b].add(a); }
+      for (const e of nb) link(a, Array.isArray(e) ? nodesOf.get(e[0])[e[1]] : e);
+      // A true island piece (no neighbour at all) joins its unit's first piece only.
+      if (!nb.length && p > 0) link(a, ids[0]);
     });
   }
   const glue = [...nodesOf.values()];
@@ -682,7 +681,7 @@ TX.validate = function (chamber, ctx, assignment, opts = {}) {
   const pieces = ctx.pieces || {};
   const discontig = [];
   let islandPieces = 0;
-  for (const ps of Object.values(pieces)) for (const nb of ps) if (!nb.length) islandPieces++;
+  for (const ps of Object.values(pieces)) ps.forEach((nb, p) => { if (!nb.length && p > 0) islandPieces++; });
   for (let d = 0; d < k; d++) {
     if (!dUnits[d].length) continue;
     // Node ids: 'u' for a whole unit, 'u:p' for piece p of a multipart unit.
@@ -691,15 +690,22 @@ TX.validate = function (chamber, ctx, assignment, opts = {}) {
     const nbrs = (id) => {
       const [us, ps] = id.split(':'); const u = +us;
       const out = [];
-      const list = ps === undefined ? ctx.adj[u] : pieces[u][+ps];
-      // Island pieces (no neighbours at all) are joined to the other pieces of
-      // their own unit, in both directions.
-      if (ps !== undefined) pieces[u].forEach((nb, q) => { if (q !== +ps && (!list.length || !nb.length)) out.push(u + ':' + q); });
-      for (const v of list) {
-        if (inD[v] !== d) continue;
-        const pv = pieces[v];
-        if (!pv) { out.push(String(v)); continue; }
-        pv.forEach((nb, q) => { if (nb.includes(u)) out.push(v + ':' + q); });
+      if (ps === undefined) {
+        for (const v of ctx.adj[u]) {
+          if (inD[v] !== d) continue;
+          const pv = pieces[v];
+          if (!pv) out.push(String(v));
+          else pv.forEach((nb, q) => { if (nb.includes(u)) out.push(v + ':' + q); });
+        }
+      } else {
+        const p = +ps, list = pieces[u][p];
+        for (const e of list) {
+          const v = Array.isArray(e) ? e[0] : e;
+          if (inD[v] === d) out.push(Array.isArray(e) ? v + ':' + e[1] : String(v));
+        }
+        // A true island piece joins its unit's first piece, and only that one.
+        if (!list.length && p > 0) out.push(u + ':0');
+        if (p === 0) pieces[u].forEach((nb, q) => { if (q > 0 && !nb.length) out.push(u + ':' + q); });
       }
       return out;
     };
@@ -714,7 +720,7 @@ TX.validate = function (chamber, ctx, assignment, opts = {}) {
   // Every 2020 census VTD in exactly one district (units may carry several).
   if (ctx.geoid) {
     const seenG = new Map(); let dup = 0, missingD = 0;
-    for (let i = 0; i < N; i++) for (const g of ctx.geoid[i].split('|')) { if (seenG.has(g)) dup++; seenG.set(g, assignment[i]); if (!(assignment[i] >= 0)) missingD++; }
+    for (let i = 0; i < N; i++) for (const g of ctx.geoid[i].split('|')) { if (seenG.has(g)) dup++; seenG.set(g, assignment[i]); if (!(assignment[i] >= 0 && assignment[i] < k)) missingD++; }
     stats.censusVTDs = seenG.size;
     add('census-vtds', 'Every 2020 Census VTD is in exactly one district', 'law', dup === 0 && missingD === 0,
       `${seenG.size.toLocaleString('en-US')} census VTDs assigned${dup ? `, ${dup} duplicated` : ''}${missingD ? `, ${missingD} unassigned` : ''}`);
@@ -748,10 +754,10 @@ TX.validate = function (chamber, ctx, assignment, opts = {}) {
     const c = ctx.county[i];
     let e = perCounty.get(c); if (!e) { e = { pop: 0, dists: new Map() }; perCounty.set(c, e); }
     e.pop += ctx.pop[i];
-    const d = assignment[i]; if (d >= 0) e.dists.set(d, (e.dists.get(d) || 0) + 1);
+    const d = assignment[i]; if (d >= 0 && d < k) e.dists.set(d, (e.dists.get(d) || 0) + 1);
   }
   const countiesOfD = Array.from({ length: k }, () => new Set());
-  for (let i = 0; i < N; i++) if (assignment[i] >= 0) countiesOfD[assignment[i]].add(ctx.county[i]);
+  for (let i = 0; i < N; i++) if (assignment[i] >= 0 && assignment[i] < k) countiesOfD[assignment[i]].add(ctx.county[i]);
   const splitCounties = [...perCounty.values()].filter(e => e.dists.size > 1).length;
   stats.splitCounties = splitCounties;
   if (P.countyLine) {
@@ -820,12 +826,12 @@ TX.validate = function (chamber, ctx, assignment, opts = {}) {
   // Race and ethnicity: reported only, never a constraint.
   if (ctx.vap) {
     const hv = new Float64Array(k), bv = new Float64Array(k), av = new Float64Array(k), tv = new Float64Array(k);
-    for (let i = 0; i < N; i++) { const d = assignment[i]; if (d < 0) continue; hv[d] += ctx.vap.h[i]; bv[d] += ctx.vap.b[i]; av[d] += ctx.vap.a[i]; tv[d] += ctx.vap.t[i]; }
+    for (let i = 0; i < N; i++) { const d = assignment[i]; if (!(d >= 0 && d < k)) continue; hv[d] += ctx.vap.h[i]; bv[d] += ctx.vap.b[i]; av[d] += ctx.vap.a[i]; tv[d] += ctx.vap.t[i]; }
     let h50 = 0, b50 = 0, a50 = 0;
     for (let d = 0; d < k; d++) { if (hv[d] > tv[d] / 2) h50++; if (bv[d] > tv[d] / 2) b50++; if (av[d] > tv[d] / 2) a50++; }
     stats.majorityHVAP = h50; stats.majorityBVAP = b50; stats.majorityAVAP = a50;
     add('vra-report', 'Majority-minority districts by voting-age population (report only)', 'report', true,
-      `Hispanic VAP > 50%: ${h50}; Black VAP > 50%: ${b50}; Asian VAP > 50%: ${a50}. These are total VAP shares from the census; for Latino voters courts use citizen VAP, which is lower and not in this data. Voting Rights Act compliance cannot be certified mechanically.`);
+      `Hispanic (any race) VAP > 50%: ${h50}; non-Hispanic Black alone VAP > 50%: ${b50}; non-Hispanic Asian alone VAP > 50%: ${a50}. Census voting-age shares; the Legislative Council counts Black more broadly, and for Latino voters courts use citizen VAP, which is lower and not in this data. Voting Rights Act compliance cannot be certified mechanically.`);
   }
   const ok = checks.filter(c => c.level === 'law' || c.level === 'presumptive' || c.level === 'practice').every(c => c.pass);
   return { chamber, ok, checks, stats, params: P };

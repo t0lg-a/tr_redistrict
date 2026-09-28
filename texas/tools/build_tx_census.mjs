@@ -246,21 +246,59 @@ for (const [key, L] of shared) {
   if (L < MIN_SHARED_M) { pointOnly++; continue; }
   adjacency[a].push(b); adjacency[b].push(a);
 }
+// Pieces: for a unit in several pieces, each piece's neighbours. A neighbour
+// that is itself in several pieces is named piece by piece as [unit, piece].
+const pieceOfArc = new Map();                 // arc -> [[unit, piece], ...]
+geoms.forEach((g, i) => polysOf(g).forEach((rings, p) => rings.forEach(ring => ring.forEach(a => {
+  const k = a < 0 ? ~a : a; if (!pieceOfArc.has(k)) pieceOfArc.set(k, []); pieceOfArc.get(k).push([i, p]);
+}))));
+const multi = new Set(geoms.map((g, i) => polysOf(g).length > 1 ? i : -1).filter(i => i >= 0));
 const pieces = {};
-geoms.forEach((g, i) => {
-  const polys = polysOf(g);
-  if (polys.length < 2) return;
-  pieces[i] = polys.map(rings => {
+for (const i of multi) {
+  pieces[i] = polysOf(geoms[i]).map((rings, p) => {
     const nb = new Map();
     for (const ring of rings) for (const a of ring) {
       const k = a < 0 ? ~a : a;
-      for (const j of arcUnits.get(k)) if (j !== i) nb.set(j, (nb.get(j) || 0) + arcLenM[k]);
+      for (const [j, q] of pieceOfArc.get(k)) if (j !== i) { const key = multi.has(j) ? j + ':' + q : String(j); nb.set(key, (nb.get(key) || 0) + arcLenM[k]); }
     }
-    return [...nb].filter(([, L]) => L >= MIN_SHARED_M).map(([j]) => j).sort((x, y) => x - y);
+    return [...nb].filter(([, L]) => L >= MIN_SHARED_M).map(([key]) => key.includes(':') ? key.split(':').map(Number) : +key);
   });
-});
+}
+// A piece with no shared arc at all may still border a unit along its whole
+// edge when the two outlines do not share vertices (an enclave drawn inside a
+// neighbour). Find such neighbours geometrically: a unit whose outline carries
+// the piece's boundary (its vertices lie on that outline, within 1 cm).
+{
+  const decoded = topo.arcs.map(a => { let x = 0, y = 0; return a.map(([dx, dy]) => [(x += dx) * qsx + topo.transform.translate[0], (y += dy) * qsy + topo.transform.translate[1]]); });
+  const ringCoords = (ring) => { const out = []; for (const a of ring) { const c = a < 0 ? decoded[~a].slice().reverse() : decoded[a]; out.push(...(out.length ? c.slice(1) : c)); } return out; };
+  const segDist = (p, a, b) => { const dx = b[0] - a[0], dy = b[1] - a[1], L = dx * dx + dy * dy; let t = L ? ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / L : 0; t = Math.max(0, Math.min(1, t)); return Math.hypot(p[0] - a[0] - t * dx, p[1] - a[1] - t * dy); };
+  const TOL = 1e-7;   // degrees, about 1 cm
+  const outlines = geoms.map(g => polysOf(g).map(rings => rings.map(ringCoords)));
+  const bbox = outlines.map(ps => { let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity; for (const rs of ps) for (const r of rs) for (const [x, y] of r) { if (x < x0) x0 = x; if (y < y0) y0 = y; if (x > x1) x1 = x; if (y > y1) y1 = y; } return [x0, y0, x1, y1]; });
+  for (const i of multi) pieces[i].forEach((nb, p) => {
+    if (nb.length) return;
+    const pts = outlines[i][p][0];
+    const pb = [Math.min(...pts.map(q => q[0])), Math.min(...pts.map(q => q[1])), Math.max(...pts.map(q => q[0])), Math.max(...pts.map(q => q[1]))];
+    for (let j = 0; j < geoms.length; j++) {
+      if (j === i) continue;
+      const b = bbox[j];
+      if (b[0] > pb[2] + TOL || b[2] < pb[0] - TOL || b[1] > pb[3] + TOL || b[3] < pb[1] - TOL) continue;
+      outlines[j].forEach((rs, q) => {
+        let on = 0;
+        for (const pt of pts) { let hit = false; for (const r of rs) { for (let s2 = 1; s2 < r.length && !hit; s2++) if (segDist(pt, r[s2 - 1], r[s2]) < TOL) hit = true; if (hit) break; } if (hit) on++; }
+        if (on < 2) return;
+        nb.push(multi.has(j) ? [j, q] : j);
+        // Symmetric: unit adjacency, and the neighbour's own piece list.
+        if (!adjacency[i].includes(j)) { adjacency[i].push(j); adjacency[j].push(i); }
+        if (multi.has(j) && !pieces[j][q].some(v => Array.isArray(v) && v[0] === i && v[1] === p)) pieces[j][q].push([i, p]);
+      });
+    }
+    notes.enclaveNeighbours = notes.enclaveNeighbours || [];
+    notes.enclaveNeighbours.push({ unit: geoms[i].properties.MAH_NAME, piece: p, neighbours: nb.map(v => Array.isArray(v) ? geoms[v[0]].properties.MAH_NAME + '#' + v[1] : geoms[v].properties.MAH_NAME) });
+  });
+}
 adjacency.forEach(a => a.sort((x, y) => x - y));
-console.error({ adjacentPairs: adjacency.reduce((s, a) => s + a.length, 0) / 2, pointOnlyPairsDropped: pointOnly, multipartUnits: Object.keys(pieces).length });
+console.error({ adjacentPairs: adjacency.reduce((s, a) => s + a.length, 0) / 2, pointOnlyPairsDropped: pointOnly, multipartUnits: Object.keys(pieces).length, enclaves: notes.enclaveNeighbours || [] });
 notes.grouped = notesGrouped;
 // Every census VTD must be in exactly one unit.
 {

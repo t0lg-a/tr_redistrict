@@ -184,6 +184,13 @@ function callWorker(w, msg, until) {
 }
 
 window.txStartRun = function (mode) {
+  // Continue and polish work on the plan on screen: its district count must
+  // match the chamber picked now, or the wrong chamber's rules would apply.
+  const r0 = state.regions[rkey()];
+  if (mode !== 'run' && r0 && r0.assignment && r0.k !== seatsFor()) {
+    status(`This map has ${r0.k} districts. Pick its chamber again to continue or polish it, or run a new plan.`, '', true);
+    return true;
+  }
   if (!TX_DATA.legal || chamber() !== 'house' || state.active !== rkey() || seatsFor() !== 150) return false;
   const r = state.regions[rkey()];
   if (!r || !r.features || state.running.has(rkey())) return true;

@@ -448,8 +448,18 @@ s = s.replace("a.download = `tr_", "a.download = `tx_")
 # incrementally by recomStepInc and flipStep.
 rep("""// ── Maintained-state ReCom ─────────────────────────────────────────""",
 """// ── Hard constraints (Texas rules) ───────────────────────────────────
-const HARD_W = 1e6;
-function hardExcess(H, p) { return (p < H.lo ? H.lo - p : p > H.hi ? p - H.hi : 0) / H.ideal * 100; }
+// Every violation costs at least HARD_W, far above any objective (the largest
+// objective terms stay well under 1e7), so a lawful plan always scores better
+// than an unlawful one and no move from a lawful plan to an unlawful one is
+// accepted, whatever the weights or temperature.
+const HARD_W = 1e9;
+// Structural rules outrank population: a run that cannot reach the population
+// band never gives up contiguity (glued VTD pieces) or the county line rule.
+const STRUCT_W = 1000;
+function hardExcess(H, p) {
+  const out = p < H.lo ? H.lo - p : p > H.hi ? p - H.hi : 0;
+  return out > 0 ? 1 + out / H.ideal * 100 : 0;
+}
 // Glue: nodes that are pieces of one indivisible unit (a census VTD whose
 // territory is in several pieces) must share a district. Each group adds
 // (districts it touches - 1) to the violation.
@@ -479,9 +489,9 @@ function hardRecompute(S) {
       if (H.lim[il] === undefined) continue;
       if (cnt > 0 && cnt < S.districtNodes[d].length) S.crossCnt.set(il, (S.crossCnt.get(il) || 0) + 1);
     }
-    for (const [il, c] of S.crossCnt) v += Math.max(0, c - H.lim[il]);
+    for (const [il, c] of S.crossCnt) v += STRUCT_W * Math.max(0, c - H.lim[il]);
   }
-  if (S.R.glue) for (const g of S.R.glue) v += glueCount(S, g);
+  if (S.R.glue) for (const g of S.R.glue) v += STRUCT_W * glueCount(S, g);
   S.viol = v;
 }
 
@@ -522,7 +532,7 @@ rep("""  // ── Proposed score
         const fn = (c1n > 0 && c1n < n1 ? 1 : 0) + (c2n > 0 && c2n < n2 ? 1 : 0);
         if (fo === fn) continue;
         const oldCross = S.crossCnt.get(il) || 0, newCross = oldCross + fn - fo;
-        newViol += Math.max(0, newCross - lim) - Math.max(0, oldCross - lim);
+        newViol += STRUCT_W * (Math.max(0, newCross - lim) - Math.max(0, oldCross - lim));
         hardCrossUpd.push(il, newCross);
       }
     }
@@ -536,7 +546,7 @@ rep("""  // ── Proposed score
         const before = glueCount(S, g);
         const seen = [];
         for (const n of g) { const d = isChanged[n] ? (inStrict[n] ? d1 : d2) : S.assignment[n]; if (!seen.includes(d)) seen.push(d); }
-        newViol += (seen.length - 1) - before;
+        newViol += STRUCT_W * ((seen.length - 1) - before);
       }
     }
   }
@@ -584,7 +594,7 @@ rep("""    const newIlSplits = S.ilSplits + dIlSplits;
             const fn = (cFn > 0 && cFn < nF ? 1 : 0) + (cTn > 0 && cTn < nT ? 1 : 0);
             if (fo === fn) continue;
             const oldCross = S.crossCnt.get(ilq) || 0, newCross = oldCross + fn - fo;
-            newViol += Math.max(0, newCross - lim) - Math.max(0, oldCross - lim);
+            newViol += STRUCT_W * (Math.max(0, newCross - lim) - Math.max(0, oldCross - lim));
             hardCrossUpd.push(ilq, newCross);
           }
         };
@@ -595,7 +605,7 @@ rep("""    const newIlSplits = S.ilSplits + dIlSplits;
         const before = glueCount(S, g);
         const seen = [];
         for (const n of g) { const d = n === node ? dTo : S.assignment[n]; if (!seen.includes(d)) seen.push(d); }
-        newViol += (seen.length - 1) - before;
+        newViol += STRUCT_W * ((seen.length - 1) - before);
       }
     }
 
@@ -621,9 +631,14 @@ rep("""    const S = buildState(R, m.k, new Int32Array(m.assignment));
     S.score = scoreFromState(S, m.weights);""")
 rep("""      S = savedState;
       // Re-evaluate score under current weights (in case they changed)
-      S.score = scoreFromState(S, weights);""", """      S = savedState;
+      S.score = scoreFromState(S, weights);""", """      if (m.k && m.k !== savedState.k) {
+        self.postMessage({ type: 'error', key: m.key, msg: `This plan has ${savedState.k} districts, not ${m.k}.` });
+        return;
+      }
+      // Continue from the best plan found (the one on screen), not from the
+      // chain's last state, under the current weights and constraints.
+      S = buildState(R, savedState.k, savedState.bestAssignment.slice());
       hardAttach(S, m.hard);
-      // Re-evaluate score under current weights (in case they changed)
       S.score = scoreFromState(S, weights);
       S.bestScore = S.score;
       S.bestAssignment.set(S.assignment);""")
@@ -742,6 +757,75 @@ rep("""    for (let i = 0; i < diff.length; i += 2) {
       const n = diff[i], d = diff[i + 1];
       if (n < els.length) els[n].setAttribute('fill', pal[d]);   // extra piece nodes have no path
     }""")
+
+
+# Best-plan bookkeeping. Flip moves in Polish are judged on population alone,
+# so the best plan is tracked by polishStep under the run's own weights, and
+# 'done' rebuilds the state of the best plan so its metrics (and any later
+# 'continue') describe the plan that is returned and shown.
+rep("""    S.score = newScore;
+    if (S.score < S.bestScore) {
+      S.bestScore = S.score;
+      S.bestAssignment.set(S.assignment);
+    }
+    return [node];""", """    S.score = newScore;
+    return [node];""")
+rep("""  S.score = scoreFromState(S, weights);
+  const recomChanged = recomStepInc(S, tol, weights, 0, rng);""", """  S.score = scoreFromState(S, weights);
+  if (S.score < S.bestScore) { S.bestScore = S.score; S.bestAssignment.set(S.assignment); }
+  const recomChanged = recomStepInc(S, tol, weights, 0, rng);""")
+rep("""// State persists between 'run' and 'continue' so the user can polish""", """// State of the best plan of a finished run: metrics, 'continue' and polish
+// all start from it.
+function bestState(S, R, hard, weights) {
+  const B = buildState(R, S.k, S.bestAssignment.slice());
+  hardAttach(B, hard);
+  B.score = scoreFromState(B, weights);
+  B.bestScore = B.score;
+  B.bestAssignment.set(B.assignment);
+  return B;
+}
+
+// State persists between 'run' and 'continue' so the user can polish""")
+rep("""      if (aborted) {
+        savedState = S; savedKey = m.key;
+        const buf = S.bestAssignment.slice().buffer;
+        self.postMessage({ type: 'done', key: m.key, aborted: true,
+          assignment: buf, score: S.bestScore,
+          metrics: metricsFromState(S) }, [buf]);
+        return;
+      }""", """      if (aborted) {
+        const B = bestState(S, R, m.hard, weights);
+        savedState = B; savedKey = m.key;
+        const buf = B.assignment.slice().buffer;
+        self.postMessage({ type: 'done', key: m.key, aborted: true,
+          assignment: buf, score: B.score,
+          metrics: metricsFromState(B) }, [buf]);
+        return;
+      }""")
+rep("""      else {
+        savedState = S; savedKey = m.key;
+        const buf = S.bestAssignment.slice().buffer;
+        self.postMessage({
+          type: 'done', key: m.key,
+          assignment: buf,
+          score: S.bestScore, iter,
+          metrics: metricsFromState(S),
+        }, [buf]);
+      }""", """      else {
+        const B = bestState(S, R, m.hard, weights);
+        savedState = B; savedKey = m.key;
+        const buf = B.assignment.slice().buffer;
+        self.postMessage({
+          type: 'done', key: m.key,
+          assignment: buf,
+          score: B.score, iter,
+          metrics: metricsFromState(B),
+        }, [buf]);
+      }""")
+# Continue and polish carry the plan's district count.
+rep("""    type: 'continue', key, hard: txHard(key),
+    tol: state.tol, weights: { ...state.weights },""", """    type: 'continue', key, hard: txHard(key), k: r.k,
+    tol: state.tol, weights: { ...state.weights },""", 2)
 
 open(os.path.join(ROOT, 'texas', 'index.html'), 'w', encoding='utf-8').write(s)
 print('ok')
