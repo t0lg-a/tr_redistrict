@@ -4,6 +4,9 @@ Browser-based redistricting playground using ReCom (Recombination) on real
 Turkey 2023 milletvekili election data, mahalle-level (precinct), 7 regions,
 51,358 mahalles total.
 
+**Texas version:** [`texas/`](texas/) — same tool on 9,712 Texas precincts
+(2024 president, U.S. House / Senate / House chambers, enacted 2021 plans).
+
 ## Open
 
 `index.html` — drag into browser. No build step. No server needed (or run
