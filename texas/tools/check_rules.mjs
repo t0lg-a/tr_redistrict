@@ -41,7 +41,7 @@ check(pieceIslands === 0, `no VTD piece without a neighbour (${pieceIslands})`);
 
 // 2. House libraries
 const dec = (s) => { const a = new Int32Array(s.length / 2); for (let i = 0; i < a.length; i++) a[i] = parseInt(s.substr(i * 2, 2), 36); return a; };
-for (const f of ['house_clusters.json', 'house_clusters_strict.json']) {
+for (const f of ['house_clusters.json']) {
   const lib = JSON.parse(fs.readFileSync(path.join(root, 'regions', f)));
   let pass = 0;
   for (const c of lib.clusterings) {

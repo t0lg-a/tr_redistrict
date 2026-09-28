@@ -25,11 +25,6 @@ const houseCtl = document.createElement('div');
 houseCtl.id = 'house-ctl';
 houseCtl.style.cssText = 'display:none;margin-top:12px';
 houseCtl.innerHTML = `
-  <div class="label">Standard</div>
-  <select class="nin" id="house-std" style="width:100%;height:32px;padding:0 8px;margin-bottom:10px">
-    <option value="std">Legislature's practice: every district within ±5%</option>
-    <option value="strict">Strict county line: range under 10%, no county split</option>
-  </select>
   <div class="label">County clustering (county line rule)</div>
   <select class="nin" id="house-cl" style="width:100%;height:32px;padding:0 8px"><option value="random">Random lawful clustering</option></select>
   <div class="hint" id="house-cl-info">Each clustering keeps every county whole except where the Texas Constitution allows a cut.</div>`;
@@ -154,10 +149,11 @@ style.textContent = `
 document.head.appendChild(style);
 
 // ── Texas House: county clusters ──────────────────────────────────────────
-const HOUSE_FILES = { std: 'regions/house_clusters.json', strict: 'regions/house_clusters_strict.json' };
+// The county line rule comes first: every clustering keeps every county whole.
+const HOUSE_FILES = { std: 'regions/house_clusters.json' };
 const houseLibs = {}, houseLibPs = {};
 let houseLib = null;             // library of the selected standard
-const houseStd = () => $('house-std').value;
+const houseStd = () => 'std';
 function fillClusterings(lib) {
   const sel = $('house-cl');
   sel.innerHTML = '<option value="random">Random lawful clustering</option>';
@@ -167,10 +163,7 @@ function fillClusterings(lib) {
     o.textContent = `Clustering ${i + 1} · ${c.stats.splitSmall.length ? 'splits ' + c.stats.splitSmall.join(', ') : 'every county whole'}`;
     sel.appendChild(o);
   });
-  const band = `${lib.lo.toLocaleString('en-US')} to ${lib.hi.toLocaleString('en-US')} people per district`;
-  $('house-cl-info').textContent = lib.minSmallSplits
-    ? `${lib.clusterings.length} lawful clusterings, ${band}. At ±5% no plan can keep every county whole: an exact solver proves at least ${lib.minSmallSplits} small county must be split (Kaufman County cannot be completed with whole neighbours), as the enacted PlanH2316 does. Each clustering splits exactly that many.`
-    : `${lib.clusterings.length} lawful clusterings, ${band} (−4.57% to +5.43%, range 9.9998%). This band keeps every county whole; no court has said whether the county line rule requires it over the Legislature's ±5%. See RULES.md.`;
+  $('house-cl-info').textContent = `${lib.clusterings.length} lawful clusterings. The county line rule is kept in full: every county is whole, counties that fit whole districts keep them all inside, and each surplus county is crossed by one district. Districts run from ${lib.lo.toLocaleString('en-US')} to ${lib.hi.toLocaleString('en-US')} people (−4.57% to +5.43%), an overall range under 10%.`;
 }
 function loadHouseLib(std) {
   std = std || houseStd();
@@ -181,7 +174,6 @@ function loadHouseLib(std) {
   }
   return houseLibPs[std].then(lib => { if (std === houseStd()) { houseLib = lib; fillClusterings(lib); } return lib; });
 }
-if (TX_DATA.legal) $('house-std').addEventListener('change', () => { loadHouseLib(); renderRules(); });
 const decodeSeed = (s) => { const a = new Int32Array(s.length / 2); for (let i = 0; i < a.length; i++) a[i] = parseInt(s.substr(i * 2, 2), 36); return a; };
 
 let pool = null;
