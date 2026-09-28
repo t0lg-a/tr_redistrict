@@ -1258,8 +1258,8 @@ function bipart(R, nodeArr, k, baseId, assignment, tol, rng, statusCb, totalK, d
       // fallback is found), so allocation cost is small.
       const savedHead = new Int32Array(R.N);
       const savedNext = new Int32Array(R.N);
-      savedHead.set(r.childHead);
-      savedNext.set(r.childNext);
+      savedHead.set(r.childHead.subarray(0, R.N));
+      savedNext.set(r.childNext.subarray(0, R.N));
       bestFallback = {
         node: r.fallbackNode, err: r.fallbackErr,
         childHead: savedHead, childNext: savedNext,
